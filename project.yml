@@ -1,0 +1,46 @@
+name: Reminder
+options:
+  bundleIdPrefix: software.plq
+  deploymentTarget:
+    iOS: "26.0"
+targets:
+  Reminder:
+    type: application
+    platform: iOS
+    sources: [Reminder]
+    info:
+      path: Reminder/Info.plist
+      properties:
+        CFBundleDisplayName: Niezapominajka
+        UILaunchScreen: {}
+        NSMicrophoneUsageDescription: Aplikacja używa mikrofonu, aby nagrać Twoje polecenie głosowe.
+        NSSpeechRecognitionUsageDescription: Aplikacja zamienia Twoją mowę na tekst, aby utworzyć przypomnienie.
+        NSRemindersFullAccessUsageDescription: Aplikacja zapisuje przypomnienia w aplikacji Przypomnienia Apple.
+        NSAlarmKitUsageDescription: Aplikacja ustawia alarmy dla pilnych przypomnień.
+        NSCalendarsFullAccessUsageDescription: Aplikacja tworzy wydarzenia w Kalendarzu z Twoich poleceń głosowych.
+        NSContactsUsageDescription: Aplikacja wyszukuje numer kontaktu, gdy prosisz o telefon lub wiadomość.
+        CFBundleURLTypes:
+          - CFBundleURLName: software.plq.niezapominajka
+            CFBundleURLSchemes: [niezapominajka]
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        PRODUCT_BUNDLE_IDENTIFIER: software.plq.niezapominajka
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        CODE_SIGN_STYLE: Automatic
+  ReminderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [ReminderTests]
+    dependencies:
+      - target: Reminder
+schemes:
+  Reminder:
+    build:
+      targets:
+        Reminder: all
+        ReminderTests: [test]
+    test:
+      targets: [ReminderTests]
