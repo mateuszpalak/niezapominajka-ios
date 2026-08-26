@@ -1,212 +1,160 @@
 import SwiftUI
 import SwiftData
 
-/// Ekran nasłuchu: live transcript → interpretacja LLM → podgląd → wykonanie.
-struct CaptureView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.modelContext) private var modelContext
-    @StateObject private var speech = SpeechService()
-
-    enum Phase {
+/// Logika przepływu: nasłuch → interpretacja LLM → podgląd → wykonanie.
+/// UI faz renderuje `ContentView` inline (jeden ekran, jak w projekcie designu).
+@MainActor
+final class CaptureController: ObservableObject {
+    enum Phase: Equatable {
         case idle
         case listening
         case interpreting
         case preview(InterpretedCommand)
         case done(String)
-        case failed(String, transcript: String?)
-    }
-    @State private var phase: Phase = .idle
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
-                content
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Słucham…")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Zamknij") { speech.stop(); dismiss() }
-                }
-            }
-            .task {
-                // Przy starcie przez URL (kontrolka/Safari) scena bywa jeszcze
-                // nieaktywna — mikrofon uruchomiony za wcześnie potrafi zawiesić
-                // przejście między aplikacjami. Poczekaj na aktywację.
-                var waited = 0
-                while scenePhase != .active && waited < 20 {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    waited += 1
-                }
-                await startListening()
-            }
-        }
+        case failed(String)
     }
 
-    @ViewBuilder
-    private var content: some View {
+    @Published var phase: Phase = .idle
+    @Published var transcript: String = ""
+    @Published var lastTranscript: String = ""
+    let speech = SpeechService()
+
+    private var modelContext: ModelContext?
+    private var cancellable: Any?
+
+    init() {
+        cancellable = speech.$transcript.assign(to: \.transcript, on: self)
+    }
+
+    func attach(_ context: ModelContext) { modelContext = context }
+
+    var isListening: Bool { phase == .listening }
+
+    func micTapped() {
         switch phase {
-        case .idle:
-            ProgressView()
-        case .listening:
-            VStack(spacing: 16) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 56))
-                    .symbolEffect(.variableColor.iterative, isActive: true)
-                    .foregroundStyle(.tint)
-                Text(speech.transcript.isEmpty ? "Mów teraz…" : speech.transcript)
-                    .font(.title3)
-                    .multilineTextAlignment(.center)
-                Button("Gotowe") { speech.stop() }
-                    .buttonStyle(.borderedProminent)
-            }
-        case .interpreting:
-            VStack(spacing: 16) {
-                ProgressView()
-                Text("Rozumiem, co powiedziałeś…")
-                Text("„\(speech.transcript)”")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-        case .preview(let command):
-            previewCard(command)
-        case .done(let confirmation):
-            VStack(spacing: 16) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 56)).foregroundStyle(.green)
-                Text(confirmation).multilineTextAlignment(.center)
-            }
-        case .failed(let message, let transcript):
-            VStack(spacing: 16) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 44)).foregroundStyle(.orange)
-                Text(message).multilineTextAlignment(.center)
-                if transcript != nil {
-                    Text("Transkrypt zapisany jako notatka-draft.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                Button("Spróbuj ponownie") { Task { await startListening() } }
-                    .buttonStyle(.borderedProminent)
-            }
+        case .listening: speech.stop()
+        case .idle, .done, .failed: Task { await startListening() }
+        default: break
         }
     }
 
-    private func previewCard(_ command: InterpretedCommand) -> some View {
-        VStack(spacing: 16) {
-            Label(actionLabel(command.action), systemImage: actionIcon(command.action))
-                .font(.headline)
-            Text(command.title).font(.title2).multilineTextAlignment(.center)
-            if let items = command.items, !items.isEmpty {
-                Text(items.joined(separator: ", "))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            if let date = command.dueDateParsed {
-                Text(date.formatted(date: .abbreviated, time: .shortened))
-                    .foregroundStyle(.secondary)
-            }
-            if let location = command.location {
-                Label(location, systemImage: "mappin.and.ellipse")
-                    .foregroundStyle(.secondary)
-            }
-            if let recipient = command.recipient {
-                Label(recipient, systemImage: "person")
-                    .foregroundStyle(.secondary)
-            }
-            if let notes = command.notes, command.action == .message {
-                Text("„\(notes)”").foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
-            HStack(spacing: 12) {
-                Button("Anuluj") { dismiss() }
-                    .buttonStyle(.bordered)
-                Button("Zapisz") { Task { await execute(command) } }
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
-    }
-
-    private func actionLabel(_ action: CommandAction) -> String {
-        switch action {
-        case .reminder: return "Przypomnienie"
-        case .alarm: return "Alarm"
-        case .note: return "Notatka"
-        case .shopping: return "Lista zakupów"
-        case .event: return "Wydarzenie w kalendarzu"
-        case .message: return "Wiadomość"
-        case .call: return "Telefon"
-        case .query: return "Plany"
-        case .complete: return "Odhacz"
-        }
-    }
-
-    private func actionIcon(_ action: CommandAction) -> String {
-        switch action {
-        case .reminder: return "bell"
-        case .alarm: return "alarm"
-        case .note: return "note.text"
-        case .shopping: return "cart"
-        case .event: return "calendar"
-        case .message: return "message"
-        case .call: return "phone"
-        case .query: return "list.bullet.rectangle"
-        case .complete: return "checkmark.circle"
-        }
-    }
-
-    private func startListening() async {
+    func startListening() async {
         guard await SpeechService.requestPermissions() else {
-            phase = .failed("Brak dostępu do mikrofonu lub rozpoznawania mowy — włącz w Ustawieniach.", transcript: nil)
+            phase = .failed("Brak dostępu do mikrofonu lub rozpoznawania mowy — włącz w Ustawieniach.")
             return
         }
+        transcript = ""
         phase = .listening
-        speech.start { transcript in
-            Task { await interpret(transcript) }
+        speech.start { [weak self] transcript in
+            Task { await self?.interpret(transcript) }
         }
+    }
+
+    func cancel() {
+        speech.stop()
+        phase = .idle
     }
 
     private func interpret(_ transcript: String) async {
         let transcript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        lastTranscript = transcript
         guard !transcript.isEmpty else {
-            let detail = speech.errorMessage ?? "Nic nie usłyszałem — spróbuj jeszcze raz."
-            phase = .failed(detail, transcript: nil)
+            phase = .failed(speech.errorMessage ?? "Nic nie usłyszałem — spróbuj jeszcze raz.")
             return
         }
         phase = .interpreting
         guard let apiKey = KeychainStore.loadAPIKey(), !apiKey.isEmpty else {
-            ActionExecutor(modelContext: modelContext).saveDraft(transcript: transcript)
-            phase = .failed("Brak klucza Claude API — dodaj go w ustawieniach.", transcript: transcript)
+            saveDraft(transcript)
+            phase = .failed("Brak klucza Claude API — dodaj go w ustawieniach. Transkrypt zapisany jako draft.")
             return
         }
         do {
             let command = try await CommandInterpreter(apiKey: apiKey).interpret(transcript: transcript)
             if command.action == .query {
-                // Odczyt planów nie wymaga potwierdzania — wykonaj od razu.
-                await execute(command)
+                await execute(command)   // odczyt planów nie wymaga potwierdzania
             } else {
                 phase = .preview(command)
             }
         } catch {
-            ActionExecutor(modelContext: modelContext).saveDraft(transcript: transcript)
-            phase = .failed(error.localizedDescription, transcript: transcript)
+            saveDraft(transcript)
+            phase = .failed("\(error.localizedDescription) Transkrypt zapisany jako draft.")
         }
     }
 
-    private func execute(_ command: InterpretedCommand) async {
+    func execute(_ command: InterpretedCommand) async {
+        guard let modelContext else { return }
         do {
             let override = try await ActionExecutor(modelContext: modelContext).execute(command)
             let text = override ?? command.confirmation
+            if command.action != .query {
+                modelContext.insert(Note(text: command.title, action: command.action.rawValue))
+            }
             phase = .done(text)
             VoiceFeedback.shared.speak(text)
-            // Dłuższe komunikaty (odczyt planów) zostają na ekranie dłużej.
             try? await Task.sleep(for: .seconds(min(12, max(3, Double(text.count) / 15))))
-            dismiss()
+            if case .done = phase { phase = .idle }
         } catch {
-            phase = .failed(error.localizedDescription, transcript: nil)
+            phase = .failed(error.localizedDescription)
         }
+    }
+
+    private func saveDraft(_ transcript: String) {
+        guard let modelContext else { return }
+        ActionExecutor(modelContext: modelContext).saveDraft(transcript: transcript)
+    }
+}
+
+// MARK: - Prezentacja akcji (ikona, kolor, nazwa) — wg designu
+
+extension CommandAction {
+    var label: String {
+        switch self {
+        case .reminder: return "Przypomnienie"
+        case .alarm: return "Alarm"
+        case .note: return "Notatka"
+        case .shopping: return "Lista zakupów"
+        case .event: return "Wydarzenie"
+        case .message: return "Wiadomość SMS"
+        case .call: return "Połączenie"
+        case .query: return "Plany"
+        case .complete: return "Odhaczone"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .reminder: return "bell.fill"
+        case .alarm: return "alarm.fill"
+        case .note: return "note.text"
+        case .shopping: return "cart.fill"
+        case .event: return "calendar"
+        case .message: return "message.fill"
+        case .call: return "phone.fill"
+        case .query: return "list.bullet.rectangle"
+        case .complete: return "checkmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .reminder, .alarm: return .orange
+        case .shopping, .call, .complete: return .green
+        case .message, .query: return .blue
+        case .event: return .red
+        case .note: return .gray
+        }
+    }
+}
+
+extension InterpretedCommand {
+    /// Jednolinijkowy opis szczegółów pod tytułem karty wyniku.
+    var detailLine: String {
+        var parts: [String] = []
+        if let items, !items.isEmpty { parts.append(items.joined(separator: " · ")) }
+        if let date = dueDateParsed { parts.append(date.formatted(date: .abbreviated, time: .shortened)) }
+        if let location { parts.append(location) }
+        if let recipient { parts.append(recipient) }
+        if let notes, action == .message { parts.append("„\(notes)”") }
+        return parts.joined(separator: " · ")
     }
 }

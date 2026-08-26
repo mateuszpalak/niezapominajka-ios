@@ -20,7 +20,7 @@ struct SettingsView: View {
             .navigationTitle("Ustawienia")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Zapisz") {
+                    Button("Gotowe") {
                         KeychainStore.saveAPIKey(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
                         dismiss()
                     }
