@@ -2,11 +2,13 @@ import Foundation
 
 enum InterpreterError: LocalizedError {
     case missingAPIKey
+    case invalidAPIKey
     case badResponse(String)
 
     var errorDescription: String? {
         switch self {
         case .missingAPIKey: return "Brak klucza Claude API — ustaw go w ustawieniach."
+        case .invalidAPIKey: return "Klucz API jest nieprawidłowy — wklej go ponownie w Ustawieniach."
         case .badResponse(let detail): return "Błąd interpretacji: \(detail)"
         }
     }
@@ -114,10 +116,34 @@ struct CommandInterpreter {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            let detail = String(data: data, encoding: .utf8) ?? "HTTP error"
-            throw InterpreterError.badResponse(detail)
+            if (response as? HTTPURLResponse)?.statusCode == 401 { throw InterpreterError.invalidAPIKey }
+            throw InterpreterError.badResponse(Self.errorMessage(from: data))
         }
         return try Self.parse(responseData: data)
+    }
+
+    /// Z odpowiedzi błędu API bierze samo `error.message` zamiast całego JSON-a.
+    static func errorMessage(from data: Data) -> String {
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let error = json?["error"] as? [String: Any]
+        return error?["message"] as? String ?? String(data: data, encoding: .utf8) ?? "błąd HTTP"
+    }
+
+    enum KeyStatus: Equatable { case valid, invalid, unreachable }
+
+    /// Sprawdza klucz lekkim zapytaniem o listę modeli (bez zużycia tokenów).
+    static func checkKey(_ key: String) async -> KeyStatus {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models?limit=1")!)
+        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.timeoutInterval = 15
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let status = (response as? HTTPURLResponse)?.statusCode else { return .unreachable }
+        switch status {
+        case 200: return .valid
+        case 401, 403: return .invalid
+        default: return .unreachable
+        }
     }
 
     /// Przyjmuje `{"actions":[…]}`; dla zgodności także pojedynczy obiekt akcji.

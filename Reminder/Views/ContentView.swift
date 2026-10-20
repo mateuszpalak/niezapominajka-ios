@@ -107,9 +107,15 @@ struct ContentView: View {
                     .foregroundStyle(.orange)
                 Text(message)
                     .multilineTextAlignment(.center)
-                Button("Spróbuj ponownie") { Task { await capture.startListening() } }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
+                if capture.keyProblem {
+                    Button("Otwórz Ustawienia") { showSettings = true }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                } else {
+                    Button("Spróbuj ponownie") { Task { await capture.startListening() } }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                }
             }
         }
     }

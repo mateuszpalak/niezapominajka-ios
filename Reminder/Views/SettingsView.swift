@@ -13,7 +13,31 @@ struct SettingsView: View {
     @State private var systemCalendar = ""
     @State private var detectedShoppingList = "Zakupy"
 
-    private var hasKey: Bool { apiKey.trimmingCharacters(in: .whitespacesAndNewlines).count > 8 }
+    @State private var keyStatus: CommandInterpreter.KeyStatus?
+    @State private var checkingKey = false
+
+    private var trimmedKey: String { apiKey.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var statusText: String {
+        if trimmedKey.isEmpty { return "Brak klucza" }
+        if checkingKey { return "Sprawdzam…" }
+        switch keyStatus {
+        case .valid: return "Klucz działa"
+        case .invalid: return "Nieprawidłowy klucz"
+        case .unreachable: return "Nie można sprawdzić"
+        case nil: return "Sprawdzam…"
+        }
+    }
+
+    private var statusColor: Color {
+        if trimmedKey.isEmpty || checkingKey { return Color(.systemGray4) }
+        switch keyStatus {
+        case .valid: return Color(hex: 0x34C759)
+        case .invalid: return Color(hex: 0xFF3B30)
+        case .unreachable: return Color(hex: 0xFF9500)
+        case nil: return Color(.systemGray4)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -30,12 +54,18 @@ struct SettingsView: View {
                     HStack {
                         Text("Stan")
                         Spacer()
-                        Circle()
-                            .fill(hasKey ? Color(hex: 0x34C759) : Color(.systemGray4))
-                            .frame(width: 8, height: 8)
-                        Text(hasKey ? "Klucz zapisany" : "Brak klucza")
+                        if checkingKey {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Circle()
+                                .fill(statusColor)
+                                .frame(width: 8, height: 8)
+                        }
+                        Text(statusText)
                             .foregroundStyle(.secondary)
                     }
+                    // Sprawdź klucz chwilę po wpisaniu/wklejeniu.
+                    .task(id: trimmedKey) { await verifyKey() }
                 } header: {
                     Text("Claude API")
                 } footer: {
@@ -94,6 +124,18 @@ struct SettingsView: View {
                 KeychainStore.saveAPIKey(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         }
+    }
+
+    private func verifyKey() async {
+        let key = trimmedKey
+        guard !key.isEmpty else { keyStatus = nil; return }
+        try? await Task.sleep(for: .milliseconds(600))
+        guard !Task.isCancelled else { return }
+        checkingKey = true
+        defer { checkingKey = false }
+        let status = await CommandInterpreter.checkKey(key)
+        guard !Task.isCancelled else { return }
+        keyStatus = status
     }
 
     private func options(_ names: [String], current: String) -> [String] {

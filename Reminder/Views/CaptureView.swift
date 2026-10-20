@@ -38,6 +38,8 @@ final class CaptureController: ObservableObject {
     @Published var countdown: Countdown?
     @Published var editingTranscript = false
     @Published var draft = ""
+    /// Ostatni błąd dotyczy klucza API — ekran błędu pokazuje skrót do Ustawień.
+    @Published var keyProblem = false
     @Published var choices = ChoiceSource()
     /// SMS czekający na arkusz Wiadomości.
     @Published var compose: MessageDraft?
@@ -106,9 +108,11 @@ final class CaptureController: ObservableObject {
             return
         }
         phase = .processing
+        keyProblem = false
         guard let apiKey = KeychainStore.loadAPIKey(), !apiKey.isEmpty else {
             saveDraft(text)
-            phase = .failed("Brak klucza Claude API — dodaj go w ustawieniach. Transkrypt zapisany jako draft.")
+            keyProblem = true
+            phase = .failed("Brak klucza Claude API — dodaj go w Ustawieniach. Transkrypt zapisany jako draft.")
             return
         }
         do {
@@ -124,6 +128,7 @@ final class CaptureController: ObservableObject {
             await askOrShowResult()
         } catch {
             saveDraft(text)
+            if case InterpreterError.invalidAPIKey = error { keyProblem = true }
             phase = .failed("\(error.localizedDescription) Transkrypt zapisany jako draft.")
         }
     }

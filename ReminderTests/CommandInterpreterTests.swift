@@ -55,6 +55,12 @@ final class CommandInterpreterTests: XCTestCase {
         XCTAssertEqual(command.clarify, "Do której Ani wysłać?")
     }
 
+    func testErrorMessageExtractsAPIMessage() {
+        let body = #"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_1"}"#
+        XCTAssertEqual(CommandInterpreter.errorMessage(from: Data(body.utf8)), "Overloaded")
+        XCTAssertEqual(CommandInterpreter.errorMessage(from: Data("nie json".utf8)), "nie json")
+    }
+
     func testShoppingCardTitleListsItems() {
         let shopping = PlannedAction(command: InterpretedCommand(
             action: .shopping, title: "Zakupy", items: ["Mleko", "Masło", "Chleb"], confirmation: "OK", listName: "Zakupy"))
