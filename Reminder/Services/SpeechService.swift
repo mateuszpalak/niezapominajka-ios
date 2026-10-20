@@ -3,18 +3,23 @@ import AVFoundation
 import Speech
 
 /// Nasłuch mikrofonu + rozpoznawanie polskiej mowy (SFSpeechRecognizer, pl-PL).
-/// Auto-stop po ~1.8 s ciszy od ostatniego fragmentu transkryptu.
+/// Auto-stop po 2,5 s ciszy od ostatniego fragmentu transkryptu (postęp ciszy w `silenceProgress`).
 @MainActor
 final class SpeechService: NSObject, ObservableObject {
     @Published var transcript: String = ""
     @Published var isListening = false
     @Published var errorMessage: String?
+    /// 0…1 — jak długo trwa cisza po ostatnim słowie; 1 = koniec nagrania.
+    @Published var silenceProgress: Double = 0
+
+    static let silenceTimeout: TimeInterval = 2.5
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pl-PL"))
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var silenceTimer: Timer?
+    private var lastHeard = Date()
     private var onFinish: ((String) -> Void)?
 
     static func requestPermissions() async -> Bool {
@@ -103,17 +108,26 @@ final class SpeechService: NSObject, ObservableObject {
     func stop() { finish() }
 
     private func resetSilenceTimer() {
-        silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.isListening, !self.transcript.isEmpty else { return }
-                self.finish()
-            }
+        lastHeard = .now
+        silenceProgress = 0
+        guard silenceTimer == nil else { return }
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tickSilence() }
         }
+    }
+
+    /// Cisza liczy się dopiero, gdy coś już usłyszeliśmy.
+    private func tickSilence() {
+        guard isListening, !transcript.isEmpty else { silenceProgress = 0; return }
+        let progress = min(1, Date.now.timeIntervalSince(lastHeard) / Self.silenceTimeout)
+        silenceProgress = progress
+        if progress >= 1 { finish() }
     }
 
     private func finish() {
         silenceTimer?.invalidate()
+        silenceTimer = nil
+        silenceProgress = 0
         if isListening {
             isListening = false
             stopAudio()

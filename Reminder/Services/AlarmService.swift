@@ -6,7 +6,8 @@ import AlarmKit
 struct AlarmService {
     struct Metadata: AlarmMetadata {}
 
-    func scheduleAlarm(title: String, date: Date) async throws {
+    /// Planuje alarm; zwraca jego identyfikator (do „Cofnij”).
+    func scheduleAlarm(title: String, date: Date) async throws -> UUID {
         let manager = AlarmManager.shared
         switch manager.authorizationState {
         case .notDetermined:
@@ -32,7 +33,13 @@ struct AlarmService {
             schedule: .fixed(date),
             attributes: attributes
         )
-        _ = try await manager.schedule(id: UUID(), configuration: configuration)
+        let id = UUID()
+        _ = try await manager.schedule(id: id, configuration: configuration)
+        return id
+    }
+
+    func cancelAlarm(id: UUID) throws {
+        try AlarmManager.shared.cancel(id: id)
     }
 
     private var notAuthorized: Error {

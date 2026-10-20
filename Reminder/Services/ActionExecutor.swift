@@ -2,63 +2,105 @@ import Foundation
 import SwiftData
 import UIKit
 
-/// Wykonuje zinterpretowaną akcję: przypomnienie / alarm / notatka.
+/// SMS do wysłania przez systemowy arkusz Wiadomości.
+struct MessageDraft: Identifiable, Equatable {
+    let id = UUID()
+    var recipients: [String]
+    var body: String
+}
+
+/// Wynik wykonania akcji.
+struct ExecutionResult {
+    /// Do „Cofnij”.
+    var undo: UndoToken?
+    /// Tekst do pokazania/wypowiedzenia (np. odczyt planów dnia).
+    var message: String?
+    /// SMS czeka na wysłanie w arkuszu Wiadomości.
+    var compose: MessageDraft?
+}
+
+/// Wykonuje zinterpretowaną akcję: przypomnienie / alarm / notatka / zakupy / wydarzenie / SMS / telefon.
 @MainActor
 struct ActionExecutor {
     var modelContext: ModelContext
 
-    /// Wykonuje akcję. Zwraca tekst do wypowiedzenia/pokazania, gdy różni się
-    /// od `command.confirmation` (np. odczyt planów dnia).
-    @discardableResult
-    func execute(_ command: InterpretedCommand) async throws -> String? {
+    func execute(_ command: InterpretedCommand, contact: ContactMatch? = nil) async throws -> ExecutionResult {
         switch command.action {
         case .reminder:
-            try await RemindersService().addReminder(
+            let id = try await RemindersService().addReminder(
                 title: command.title, notes: command.notes, dueDate: command.dueDateParsed,
-                locationName: command.location)
+                listName: command.listName, locationName: command.location)
+            return ExecutionResult(undo: .reminders([id]))
         case .alarm:
             guard let date = command.dueDateParsed else {
                 // Alarm bez daty nie ma sensu — zapisz jako przypomnienie bez terminu.
-                try await RemindersService().addReminder(title: command.title, notes: command.notes, dueDate: nil)
-                return nil
+                let id = try await RemindersService().addReminder(title: command.title, notes: command.notes, dueDate: nil)
+                return ExecutionResult(undo: .reminders([id]))
             }
-            try await AlarmService().scheduleAlarm(title: command.title, date: date)
-            try await RemindersService().addReminder(title: command.title, notes: command.notes, dueDate: date)
+            let alarmID = try await AlarmService().scheduleAlarm(title: command.title, date: date)
+            let id = try await RemindersService().addReminder(title: command.title, notes: command.notes, dueDate: date)
+            return ExecutionResult(undo: .alarm(alarmID, reminder: id))
         case .note:
             // Notatki Apple nie mają publicznego API — notatki lądują jako pozycje
             // bez terminu na liście „Notatki” w Przypomnieniach (synchronizacja iCloud).
-            try await RemindersService().addReminder(
-                title: command.title, notes: command.notes, dueDate: nil, listName: "Notatki")
+            let id = try await RemindersService().addReminder(
+                title: command.title, notes: command.notes, dueDate: nil, listName: command.listName ?? "Notatki")
+            return ExecutionResult(undo: .reminders([id]))
         case .shopping:
             let items = command.items?.filter { !$0.isEmpty } ?? []
             guard !items.isEmpty else {
-                try await RemindersService().addReminder(title: command.title, notes: command.notes, dueDate: nil)
-                return nil
+                let id = try await RemindersService().addReminder(
+                    title: command.title, notes: command.notes, dueDate: nil, listName: command.listName)
+                return ExecutionResult(undo: .reminders([id]))
             }
-            try await RemindersService().addShoppingItems(items)
+            let ids = try await RemindersService().addShoppingItems(items, listName: command.listName)
+            return ExecutionResult(undo: .reminders(ids))
         case .event:
             guard let start = command.dueDateParsed else {
                 throw NSError(domain: "Reminder", code: 7,
                               userInfo: [NSLocalizedDescriptionKey: "Nie zrozumiałem terminu wydarzenia — spróbuj podać datę i godzinę."])
             }
-            try await CalendarService().addEvent(title: command.title, notes: command.notes, start: start)
+            let id = try await CalendarService().addEvent(
+                title: command.title, notes: command.notes, start: start, end: command.endDateParsed,
+                location: command.location, calendarName: command.calendarName)
+            return ExecutionResult(undo: .event(id))
         case .message:
-            let number = try await ContactsService().phoneNumber(for: recipientOrThrow(command))
-            let body = command.notes ?? command.title
-            let encoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            guard let url = URL(string: "sms:\(sanitize(number))&body=\(encoded)") else { return nil }
-            await UIApplication.shared.open(url)
+            let number = try await phoneNumber(command, contact: contact)
+            return ExecutionResult(compose: MessageDraft(recipients: [sanitize(number)], body: command.notes ?? command.title))
         case .call:
-            let number = try await ContactsService().phoneNumber(for: recipientOrThrow(command))
-            guard let url = URL(string: "tel:\(sanitize(number))") else { return nil }
+            let number = try await phoneNumber(command, contact: contact)
+            guard let url = URL(string: "tel:\(sanitize(number))") else { return ExecutionResult() }
             await UIApplication.shared.open(url)
+            return ExecutionResult()
         case .query:
-            return try await daySummary(for: command.dueDateParsed ?? .now)
+            return ExecutionResult(message: try await daySummary(for: command.dueDateParsed ?? .now))
         case .complete:
-            let title = try await RemindersService().completeReminder(matching: command.title)
-            return "Odhaczyłem: \(title)."
+            let (id, title) = try await RemindersService().completeReminder(matching: command.title)
+            return ExecutionResult(undo: .completed(id), message: "Odhaczyłem: \(title).")
         }
-        return nil
+    }
+
+    /// „Cofnij”: usuwa to, co zapisaliśmy.
+    func undo(_ token: UndoToken) throws {
+        switch token {
+        case .reminders(let ids):
+            try RemindersService().remove(ids: ids)
+        case .event(let id):
+            try CalendarService().remove(id: id)
+        case .alarm(let alarmID, let reminderID):
+            try? AlarmService().cancelAlarm(id: alarmID)
+            try RemindersService().remove(ids: [reminderID])
+        case .completed(let id):
+            try RemindersService().uncomplete(id: id)
+        }
+    }
+
+    /// Gdy SMS nie da się wysłać w aplikacji (np. symulator) — otwórz Wiadomości.
+    func openMessages(_ draft: MessageDraft) async {
+        let encoded = draft.body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        guard let number = draft.recipients.first,
+              let url = URL(string: "sms:\(number)&body=\(encoded)") else { return }
+        await UIApplication.shared.open(url)
     }
 
     /// Buduje polskie podsumowanie przypomnień i wydarzeń na dany dzień.
@@ -95,12 +137,14 @@ struct ActionExecutor {
         return parts.joined(separator: " ")
     }
 
-    private func recipientOrThrow(_ command: InterpretedCommand) throws -> String {
+    private func phoneNumber(_ command: InterpretedCommand, contact: ContactMatch?) async throws -> String {
+        if let number = contact?.number(labeled: command.phoneLabel) { return number }
         guard let recipient = command.recipient, !recipient.isEmpty else {
             throw NSError(domain: "Reminder", code: 8,
                           userInfo: [NSLocalizedDescriptionKey: "Nie zrozumiałem, do kogo — powtórz z imieniem kontaktu."])
         }
-        return recipient
+        let match = try await ContactsService().bestMatch(for: recipient)
+        return match.number(labeled: command.phoneLabel) ?? ""
     }
 
     private func sanitize(_ number: String) -> String {

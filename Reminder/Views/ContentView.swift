@@ -6,44 +6,83 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Note.createdAt, order: .reverse) private var notes: [Note]
+    @State private var confirmClearHistory = false
     @StateObject private var capture = CaptureController()
     @State private var showSettings = false
+    @AppStorage(AppSettings.Key.listenOnOpen) private var listenOnOpen = true
+    @AppStorage(AppSettings.Key.preview) private var preview = false
 
-    private let hints = ["„Przypomnij mi…”", "„Zanotuj…”", "„Dodaj do zakupów…”", "„Wyślij SMS do…”", "„Zadzwoń do…”"]
+    private let hints = ["„Przypomnij mi…”", "„Dodaj do zakupów…”", "„Zaplanuj spotkanie…”",
+                         "„Wyślij SMS do…”", "„Zadzwoń do…”", "„Zanotuj…”"]
 
     var body: some View {
-        NavigationStack {
         VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                phaseContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if capture.phase == .idle, !notes.isEmpty {
-                    historySection
+            // Ekran z kartami: bez nagłówka — na górze podyktowana treść.
+            if capture.phase != .result { header }
+            Group {
+                if capture.phase == .result {
+                    ScrollView { resultView.padding(.horizontal, 16) }
+                        .scrollDismissesKeyboard(.interactively)
+                } else {
+                    phaseContent
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .padding(.horizontal, 20)
-            micArea
+            .frame(maxHeight: .infinity)
+            if showButtons { buttonsRow.padding(.bottom, 8) }
+            // Na ekranie z kartami tylko „Odrzuć” / „Gotowe” — bez mikrofonu.
+            if capture.phase != .result { micArea }
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                    .accessibilityLabel("Ustawienia")
-            }
-        }
-        }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: Binding(get: { capture.editingTranscript },
+                                    set: { if !$0 { capture.cancelEditTranscript() } })) {
+            EditTranscriptSheet(text: $capture.draft,
+                                onCancel: { capture.cancelEditTranscript() },
+                                onAnalyze: { capture.reanalyze() })
+        }
+        .sheet(item: $capture.compose, onDismiss: { capture.composeFinished(sent: false) }) { draft in
+            MessageComposer(draft: draft) { sent in capture.composeFinished(sent: sent) }
+                .ignoresSafeArea()
+        }
         .onAppear {
             capture.attach(modelContext)
             consumeStartRequest()
+            autoStart()
         }
         .onChange(of: appState.startCaptureRequested) { _, _ in consumeStartRequest() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { autoStart() }
+        }
         .onOpenURL { url in
             if url.host == "capture" || url.absoluteString.contains("capture") {
                 appState.startCaptureRequested = true
             }
         }
         .animation(.easeInOut(duration: 0.25), value: capture.phase)
+        .animation(.easeInOut(duration: 0.25), value: capture.actions.map(\.status))
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Asystent")
+                .font(.system(size: 34, weight: .bold))
+                .tracking(0.3)
+            Spacer()
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color(.secondaryLabel))
+                    .frame(width: 36, height: 36)
+                    .background(Color(.tertiarySystemFill), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Ustawienia")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Fazy
@@ -55,15 +94,19 @@ struct ContentView: View {
             idleView
         case .listening:
             listeningView
-        case .interpreting:
+        case .processing:
             processingView
-        case .preview(let command):
-            resultCard(command)
-        case .done(let text):
-            statusView(symbol: "checkmark.circle.fill", color: .green, text: text)
+        case .ask:
+            askView
+        case .result:
+            EmptyView()
         case .failed(let message):
             VStack(spacing: 14) {
-                statusView(symbol: "exclamationmark.triangle.fill", color: .orange, text: message)
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.orange)
+                Text(message)
+                    .multilineTextAlignment(.center)
                 Button("Spróbuj ponownie") { Task { await capture.startListening() } }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
@@ -72,49 +115,65 @@ struct ContentView: View {
     }
 
     private var idleView: some View {
-        VStack(spacing: 12) {
-            Text("Powiedz, co mam zrobić")
-                .font(.system(size: 22, weight: .semibold))
-            Text("Notatka, przypomnienie, wydarzenie, zakupy, SMS albo telefon — po prostu mów.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 260)
-            FlowLayout(spacing: 8) {
-                ForEach(hints, id: \.self) { hint in
-                    Text(hint)
-                        .font(.footnote)
-                        .foregroundStyle(Color(.label).opacity(0.8))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(Color(.secondarySystemGroupedBackground), in: Capsule())
-                        .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+        VStack(spacing: 28) {
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
+                Text("Powiedz, co mam zrobić")
+                    .font(.system(size: 22, weight: .semibold))
+                Text("Możesz podać kilka poleceń naraz. Zapiszę, gdy skończysz mówić.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(3)
+                    .frame(maxWidth: 280)
+                FlowLayout(spacing: 8) {
+                    ForEach(hints, id: \.self) { hint in
+                        Text(hint)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(.label).opacity(0.8))
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 7)
+                            .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+                    }
                 }
+                .frame(maxWidth: 320)
+                .padding(.top, 8)
             }
-            .frame(maxWidth: 300)
-            .padding(.top, 14)
+            .multilineTextAlignment(.center)
+            if !notes.isEmpty { historySection }
+            Spacer(minLength: 0)
         }
-        .multilineTextAlignment(.center)
     }
 
     private var listeningView: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let finishing = capture.silenceProgress > 0.4
+        return VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 8) {
-                Circle().fill(.red).frame(width: 8, height: 8)
+                Circle().fill(Color(hex: 0xFF3B30)).frame(width: 8, height: 8)
                     .modifier(Blink(period: 1.1))
-                Text("SŁUCHAM…")
+                Text(finishing ? "KOŃCZĘ NAGRYWANIE…" : "SŁUCHAM…")
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(0.6)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color(hex: 0xFF3B30))
             }
-            HStack(alignment: .bottom, spacing: 2) {
+            HStack(alignment: .lastTextBaseline, spacing: 2) {
                 Text(capture.transcript)
-                    .font(.system(size: 26, weight: .medium))
+                    .font(.system(size: 27, weight: .medium))
                     .tracking(-0.3)
                     .lineSpacing(6)
-                Rectangle().fill(.tint).frame(width: 3, height: 26)
+                Rectangle().fill(Color(hex: 0x007AFF)).frame(width: 3, height: 27)
                     .modifier(Blink(period: 0.9))
             }
-            .frame(minHeight: 140, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+            // Pasek ciszy (1,2 s) — po jego zapełnieniu nagranie samo się kończy.
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color(.systemGray5))
+                    Capsule().fill(Color(hex: 0x007AFF))
+                        .frame(width: geo.size.width * capture.silenceProgress)
+                }
+            }
+            .frame(height: 4)
+            .opacity(finishing ? 1 : 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -122,90 +181,192 @@ struct ContentView: View {
     private var processingView: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(capture.lastTranscript)
-                .font(.body)
+                .font(.system(size: 19))
                 .foregroundStyle(.secondary)
+                .lineSpacing(4)
             HStack(spacing: 10) {
                 ProgressView()
-                Text("Przetwarzam…")
-                    .font(.subheadline)
+                Text("Rozpoznaję polecenie…")
+                    .font(.system(size: 15))
                     .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func resultCard(_ command: InterpretedCommand) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("„\(capture.lastTranscript)”")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    ActionIcon(action: command.action, size: 40)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(command.action.label)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Text(command.title)
-                            .font(.headline)
+    @ViewBuilder
+    private var askView: some View {
+        if let ask = capture.ask {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("„\(capture.lastTranscript)”")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                Text(ask.question)
+                    .font(.system(size: 22, weight: .semibold))
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(Array(ask.options.enumerated()), id: \.element.id) { index, option in
+                        if index > 0 { Divider().padding(.leading, 72) }
+                        Button { capture.pickContact(option) } label: {
+                            HStack(spacing: 12) {
+                                Text(option.initials)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(LinearGradient(colors: [Color(hex: 0xA5A9B4), Color(hex: 0x858993)],
+                                                               startPoint: .top, endPoint: .bottom), in: Circle())
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(option.name).font(.system(size: 17)).foregroundStyle(Color(.label))
+                                    Text(option.subtitle).font(.system(size: 14)).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color(.tertiaryLabel))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                let detail = command.detailLine
-                if !detail.isEmpty {
-                    Text(detail)
-                        .font(.subheadline)
-                        .foregroundStyle(Color(.label).opacity(0.8))
-                }
-                HStack(spacing: 10) {
-                    Button { Task { await capture.execute(command) } } label: {
-                        Text("Wykonaj").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button { capture.cancel() } label: {
-                        Text("Anuluj").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .controlSize(.large)
-                .fontWeight(.semibold)
-                .padding(.top, 2)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
             }
-            .padding(18)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-            .shadow(color: .black.opacity(0.06), radius: 5, y: 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func statusView(symbol: String, color: Color, text: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: 48))
-                .foregroundStyle(color)
-            Text(text)
-                .multilineTextAlignment(.center)
+    private var resultView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("„\(capture.lastTranscript)”")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onTapGesture { capture.beginEditTranscript() }
+                Button("Edytuj", systemImage: "pencil") { capture.beginEditTranscript() }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.regular)
+                    .fontWeight(.semibold)
+            }
+            .padding(.leading, 4)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            ForEach(capture.actions) { action in
+                ActionCard(
+                    action: action,
+                    choices: capture.choices,
+                    countdown: capture.countdown,
+                    editable: preview && action.status == .pending,
+                    showsUndo: capture.actions.count > 1,
+                    onUndo: { capture.undo(action.id) },
+                    onText: { key, value in capture.setText(action.id, key: key, value: value) },
+                    onDate: { capture.setDate(action.id, date: $0) },
+                    onType: { capture.setType(action.id, to: $0) })
+            }
         }
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: - Przyciski pod kartami
+
+    private var showButtons: Bool {
+        guard capture.phase == .result, !capture.editingTranscript else { return false }
+        let settled = capture.actions.allSatisfy(\.isSettled)
+        return !capture.pending.isEmpty || (settled && capture.countdown == nil)
+    }
+
+    private var buttonsRow: some View {
+        let pending = capture.pending
+        let unsafe = pending.first { !$0.command.action.isSafe }
+        var primary = "Gotowe"
+        if !pending.isEmpty {
+            primary = (unsafe != nil && pending.count == 1) ? unsafe!.command.action.verb : "Zapisz"
+            if capture.countdown != nil { primary += " teraz" }
+        }
+        return HStack(spacing: 10) {
+            if pending.isEmpty && capture.canDiscard {
+                Button { capture.discardAll() } label: {
+                    Text("Odrzuć")
+                        .foregroundStyle(Color(hex: 0xFF3B30))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+            if !pending.isEmpty {
+                Button { capture.cancelAll() } label: {
+                    Text("Anuluj")
+                        .foregroundStyle(Color(hex: 0x007AFF))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+            Button {
+                if pending.isEmpty { capture.finishBatch() } else { Task { await capture.executePending() } }
+            } label: {
+                Text(primary)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(Color(hex: 0x007AFF), in: RoundedRectangle(cornerRadius: 14))
+            }
+        }
+        .font(.system(size: 17, weight: .semibold))
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
     }
 
     // MARK: - Ostatnio
 
     private var historySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("OSTATNIO")
-                .font(.system(size: 13, weight: .semibold))
-                .tracking(0.5)
-                .foregroundStyle(.secondary)
-            VStack(spacing: 0) {
-                ForEach(Array(notes.prefix(3).enumerated()), id: \.element.persistentModelID) { index, note in
-                    historyRow(note)
-                    if index < min(notes.count, 3) - 1 {
-                        Divider().padding(.leading, 56)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("OSTATNIO")
+                    .font(.system(size: 13))
+                    .tracking(0.3)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Wyczyść") { confirmClearHistory = true }
+                    .font(.system(size: 13))
             }
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 16)
+            .confirmationDialog("Wyczyścić całą historię?", isPresented: $confirmClearHistory, titleVisibility: .visible) {
+                Button("Wyczyść wszystko", role: .destructive) { clearHistory() }
+            }
+            // List zamiast VStack, żeby działał systemowy swipe w lewo do usunięcia.
+            let recent = Array(notes.prefix(4))
+            List {
+                ForEach(recent) { note in
+                    historyRow(note)
+                        .background(Color(.secondarySystemGroupedBackground),
+                                    in: Self.historyRowShape(index: recent.firstIndex(of: note) ?? 0, count: recent.count))
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in 58 }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { modelContext.delete(note) } label: {
+                                Label("Usuń", systemImage: "trash")
+                            }
+                        }
+                }
+                .listRowSeparator(.hidden, edges: .top)
+            }
+            .listStyle(.plain)
+            .scrollDisabled(true)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, Self.historyRowHeight)
+            .frame(height: Self.historyRowHeight * CGFloat(recent.count))
+            .animation(.default, value: recent.count)
         }
-        .padding(.bottom, 8)
     }
 
     private func historyRow(_ note: Note) -> some View {
@@ -220,63 +381,100 @@ struct ContentView: View {
                     .background(Color.gray, in: RoundedRectangle(cornerRadius: 8))
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(note.text).font(.subheadline).lineLimit(1)
-                Text(note.isDraft ? "Draft (offline)" : note.commandAction?.label ?? "")
-                    .font(.footnote).foregroundStyle(.secondary)
+                Text(note.text).font(.system(size: 15)).lineLimit(1)
+                Text(note.isDraft ? "Draft (offline)" : note.detail ?? note.commandAction?.label ?? "")
+                    .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(note.createdAt, format: .relative(presentation: .named))
-                .font(.footnote).foregroundStyle(.secondary)
+            Text(note.createdAt, format: .relative(presentation: .named).locale(Locale(identifier: "pl_PL")))
+                .font(.system(size: 13)).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.horizontal, 16)
+        .frame(height: Self.historyRowHeight)
         .contextMenu {
             Button(role: .destructive) { modelContext.delete(note) } label: { Label("Usuń", systemImage: "trash") }
         }
     }
 
+    private static let historyRowHeight: CGFloat = 56
+
+    /// Zaokrąglenia jak w grupie iOS: góra pierwszego wiersza, dół ostatniego — przesunięty swipe'em wiersz zachowuje rogi.
+    private static func historyRowShape(index: Int, count: Int) -> UnevenRoundedRectangle {
+        let top: CGFloat = index == 0 ? 12 : 0
+        let bottom: CGFloat = index == count - 1 ? 12 : 0
+        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
+                                      bottomTrailingRadius: bottom, topTrailingRadius: top)
+    }
+
+    private func clearHistory() {
+        withAnimation { notes.forEach(modelContext.delete) }
+    }
+
     // MARK: - Mikrofon
 
+    private var micActive: Bool { capture.isListening }
+
     private var micArea: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             ZStack {
-                if capture.isListening {
-                    Circle().fill(.red)
+                if micActive {
+                    Circle().fill(Color(hex: 0xFF3B30))
                         .modifier(Pulse())
                 }
                 Button { capture.micTapped() } label: {
                     Image(systemName: "mic.fill")
-                        .font(.system(size: 30, weight: .medium))
+                        .font(.system(size: 28, weight: .medium))
                         .foregroundStyle(.white)
-                        .frame(width: 76, height: 76)
-                        .background(capture.isListening ? Color.red : Color.accentColor, in: Circle())
-                        .shadow(color: .black.opacity(0.18), radius: 7, y: 4)
+                        .frame(width: 72, height: 72)
+                        .background(micColor, in: Circle())
+                        .shadow(color: .black.opacity(0.16), radius: 7, y: 4)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(capture.isListening ? "Zakończ nasłuch" : "Zacznij mówić")
+                .accessibilityLabel(micActive ? "Zakończ nasłuch" : "Zacznij mówić")
             }
-            .frame(width: 76, height: 76)
+            .frame(width: 72, height: 72)
             Text(micLabel)
-                .font(.footnote)
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+                .frame(minHeight: 16)
         }
-        .padding(.top, 12)
+        .padding(.top, 14)
         .padding(.bottom, 8)
+    }
+
+    private var micColor: Color {
+        if micActive { return Color(hex: 0xFF3B30) }
+        switch capture.phase {
+        case .processing, .ask: return Color(hex: 0xC7C7CC)
+        default: return Color(hex: 0x007AFF)
+        }
     }
 
     private var micLabel: String {
         switch capture.phase {
+        case .idle, .failed: return "Stuknij i mów"
         case .listening: return "Stuknij, aby zakończyć"
-        case .idle, .done, .failed: return "Stuknij i mów"
-        default: return " "
+        case .processing: return ""
+        case .ask: return "Wybierz kontakt"
+        case .result: return ""
         }
     }
 
-    // MARK: - Start z intentu / URL
+    // MARK: - Start z intentu / URL / po otwarciu
 
     private func consumeStartRequest() {
         guard appState.startCaptureRequested else { return }
         appState.startCaptureRequested = false
+        startWhenActive()
+    }
+
+    /// „Słuchaj po otwarciu”: nasłuch rusza sam, gdy aplikacja staje się aktywna na ekranie startowym.
+    private func autoStart() {
+        guard listenOnOpen, capture.phase == .idle, !showSettings, capture.compose == nil else { return }
+        startWhenActive()
+    }
+
+    private func startWhenActive() {
         Task {
             // Scena bywa nieaktywna przy starcie przez URL — poczekaj, zanim
             // włączysz mikrofon (inaczej zawiesza przejście między aplikacjami).
@@ -292,12 +490,45 @@ struct ContentView: View {
 
 // MARK: - Pomocnicze widoki
 
-private struct ActionIcon: View {
+/// Edycja treści polecenia — arkusz z „Anuluj” / „Analizuj” w pasku, jak w systemowych aplikacjach.
+struct EditTranscriptSheet: View {
+    @Binding var text: String
+    var onCancel: () -> Void
+    var onAnalyze: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Polecenie", text: $text, axis: .vertical)
+                        .lineLimit(3...8)
+                        .focused($focused)
+                } footer: {
+                    Text("Popraw treść, a asystent przeanalizuje polecenie jeszcze raz. Zapisane już elementy zostaną zastąpione.")
+                }
+            }
+            .navigationTitle("Edytuj polecenie")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Anuluj", action: onCancel) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Analizuj", action: onAnalyze)
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear { focused = true }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+struct ActionIcon: View {
     let action: CommandAction
     let size: CGFloat
     var body: some View {
         Image(systemName: action.symbol)
-            .font(.system(size: size / 2, weight: .semibold))
+            .font(.system(size: size * 0.5, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(action.color, in: RoundedRectangle(cornerRadius: size / 4))

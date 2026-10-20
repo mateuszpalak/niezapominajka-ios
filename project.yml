@@ -7,11 +7,15 @@ targets:
   Reminder:
     type: application
     platform: iOS
-    sources: [Reminder]
+    sources: [Reminder, Shared]
+    dependencies:
+      - target: ReminderWidget
     info:
       path: Reminder/Info.plist
       properties:
         CFBundleDisplayName: Niezapominajka
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "2"
         UILaunchScreen: {}
         NSMicrophoneUsageDescription: Aplikacja używa mikrofonu, aby nagrać Twoje polecenie głosowe.
         NSSpeechRecognitionUsageDescription: Aplikacja zamienia Twoją mowę na tekst, aby utworzyć przypomnienie.
@@ -30,12 +34,34 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         CODE_SIGN_STYLE: Automatic
+  ReminderWidget:
+    type: app-extension
+    platform: iOS
+    sources: [ReminderWidget, Shared]
+    info:
+      path: ReminderWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Asystent
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "2"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        PRODUCT_BUNDLE_IDENTIFIER: software.plq.niezapominajka.widget
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET_EXTENSION"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
   ReminderTests:
     type: bundle.unit-test
     platform: iOS
     sources: [ReminderTests]
     dependencies:
       - target: Reminder
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Reminder:
     build:

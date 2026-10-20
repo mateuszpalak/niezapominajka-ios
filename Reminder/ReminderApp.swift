@@ -5,6 +5,10 @@ import SwiftData
 struct ReminderApp: App {
     @StateObject private var appState = AppState.shared
 
+    init() {
+        AppSettings.register()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -14,7 +18,7 @@ struct ReminderApp: App {
     }
 }
 
-/// Globalny stan aplikacji — App Intent ustawia `startCaptureRequested`,
+/// Globalny stan aplikacji — App Intent / widżet ustawia `startCaptureRequested`,
 /// żeby UI od razu wszedł w tryb nasłuchu.
 @MainActor
 final class AppState: ObservableObject {

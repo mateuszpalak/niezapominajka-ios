@@ -12,26 +12,36 @@ enum InterpreterError: LocalizedError {
     }
 }
 
-/// Wysyła polski transkrypt do Claude API i dostaje strukturalną instrukcję.
+/// Wysyła polski transkrypt do Claude API i dostaje listę strukturalnych poleceń.
 struct CommandInterpreter {
     var apiKey: String
 
-    private static let schema: [String: Any] = [
+    private static let actionSchema: [String: Any] = [
         "type": "object",
         "properties": [
             "action": ["type": "string", "enum": ["reminder", "note", "alarm", "shopping", "event", "message", "call", "query", "complete"]],
             "title": ["type": "string"],
             "dueDate": ["type": ["string", "null"], "description": "ISO 8601 z offsetem strefy, np. 2026-08-07T20:00:00+02:00; null gdy brak terminu"],
+            "endDate": ["type": ["string", "null"], "description": "koniec wydarzenia (ISO 8601), tylko dla action=event; null = godzina po dueDate"],
             "notes": ["type": ["string", "null"]],
             "items": ["type": ["array", "null"], "items": ["type": "string"],
                       "description": "produkty na listę zakupów, tylko dla action=shopping"],
             "location": ["type": ["string", "null"],
-                         "description": "nazwa miejsca dla przypomnienia lokalizacyjnego, np. Lidl"],
+                         "description": "miejsce: dla przypomnienia lokalizacyjnego (np. Lidl) albo miejsce wydarzenia (np. Biuro)"],
             "recipient": ["type": ["string", "null"],
-                          "description": "imię/nazwa kontaktu dla action=message lub call, np. Mama"],
+                          "description": "imię/nazwa kontaktu w mianowniku dla action=message lub call, np. Mama, Ania"],
+            "clarify": ["type": ["string", "null"],
+                        "description": "dla message/call: pytanie, gdyby było kilka kontaktów o tym imieniu, np. Do której Ani wysłać?"],
             "confirmation": ["type": "string"],
         ],
-        "required": ["action", "title", "dueDate", "notes", "items", "location", "recipient", "confirmation"],
+        "required": ["action", "title", "dueDate", "endDate", "notes", "items", "location", "recipient", "clarify", "confirmation"],
+        "additionalProperties": false,
+    ]
+
+    private static let schema: [String: Any] = [
+        "type": "object",
+        "properties": ["actions": ["type": "array", "items": actionSchema]],
+        "required": ["actions"],
         "additionalProperties": false,
     ]
 
@@ -44,16 +54,22 @@ struct CommandInterpreter {
         iso.timeZone = timeZone
         return """
         Jesteś interpreterem polskich poleceń głosowych w aplikacji przypomnień. \
-        Użytkownik mówi swobodnie po polsku. Twoim zadaniem jest zamienić transkrypt na jedną akcję:
+        Użytkownik mówi swobodnie po polsku. Twoim zadaniem jest zamienić transkrypt na listę akcji "actions". \
+        Zwykle to jedna akcja, ale jeśli użytkownik w jednej wypowiedzi podał kilka poleceń \
+        („dodaj do zakupów mleko i przypomnij mi o tabletce”), zwróć każde jako osobny element, w kolejności wypowiedzenia. \
+        Rodzaje akcji:
         - "reminder": przypomnienie (z terminem, jeśli użytkownik go podał),
         - "alarm": tylko gdy użytkownik wyraźnie chce budzik/alarm ("obudź mnie", "ustaw alarm/budzik"),
         - "note": notatka bez terminu ("zanotuj", "zapisz", albo brak jakiegokolwiek odniesienia do czasu i charakter informacyjny),
         - "shopping": lista zakupów ("dodaj do zakupów / do listy zakupów", "kup", "muszę kupić") — \
         rozbij produkty na osobne pozycje w "items" (każda z wielkiej litery, np. ["Mleko", "Chleb"]), "title" ustaw na "Zakupy",
-        - "event": wydarzenie w kalendarzu ("umów", "spotkanie", "wizyta", "dodaj do kalendarza") — "dueDate" to początek,
-        - "message": użytkownik chce TERAZ wysłać wiadomość ("napisz do X, że…", "wyślij wiadomość do X") — \
-        "recipient" to imię kontaktu tak jak wypowiedziane (np. "Mama"), "notes" to treść wiadomości do wysłania,
-        - "call": użytkownik chce TERAZ zadzwonić ("zadzwoń do X") — "recipient" to imię kontaktu. \
+        - "event": wydarzenie w kalendarzu ("umów", "zaplanuj spotkanie", "wizyta", "dodaj do kalendarza") — "dueDate" to początek, \
+        "endDate" koniec (null, gdy nie podano), "location" to miejsce (np. "Biuro"),
+        - "message": użytkownik chce TERAZ wysłać wiadomość ("napisz do X, że…", "wyślij SMS do X") — \
+        "recipient" to imię kontaktu w mianowniku (np. "do Ani" → "Ania"), "notes" to gotowa treść wiadomości \
+        w pierwszej osobie (np. "Cześć, spóźnię się około 10 minut."), "clarify" to pytanie w stylu "Do której Ani wysłać?",
+        - "call": użytkownik chce TERAZ zadzwonić ("zadzwoń do X") — "recipient" to imię kontaktu w mianowniku, \
+        "clarify" np. "Do którego Marka zadzwonić?". \
         Uwaga: "przypomnij mi, żeby zadzwonić do X" to "reminder", nie "call"!
         - "query": użytkownik pyta o plany ("co mam dziś do zrobienia?", "jakie mam jutro plany?", "co mam w kalendarzu w piątek?") — \
         "dueDate" ustaw na południe pytanego dnia (null = dziś); "confirmation" krótkie, np. "Sprawdzam plany.",
@@ -61,6 +77,7 @@ struct CommandInterpreter {
         "title" to fraza do dopasowania istniejącego przypomnienia (np. "mleko").
         Jeśli użytkownik wiąże przypomnienie z miejscem ("jak będę w Lidlu", "kiedy dojadę do pracy"), \
         ustaw "location" na nazwę miejsca, a action zostaw "reminder".
+        Pola nieużywane przez dany rodzaj akcji ustaw na null.
 
         Teraz jest: \(f.string(from: now)) (\(iso.string(from: now))), strefa \(timeZone.identifier).
         Zasady dat: "wieczorem" ≈ 19:00, "rano" ≈ 8:00, "po południu" ≈ 15:00, o ile użytkownik nie podał godziny. \
@@ -70,15 +87,19 @@ struct CommandInterpreter {
         """
     }
 
-    func interpret(transcript: String) async throws -> InterpretedCommand {
+    func interpret(transcript: String) async throws -> [InterpretedCommand] {
+        try await send(system: Self.systemPrompt(), user: transcript)
+    }
+
+    private func send(system: String, user: String) async throws -> [InterpretedCommand] {
         guard !apiKey.isEmpty else { throw InterpreterError.missingAPIKey }
 
         let body: [String: Any] = [
             "model": "claude-haiku-4-5",
-            "max_tokens": 1024,
-            "system": Self.systemPrompt(),
+            "max_tokens": 2048,
+            "system": system,
             "output_config": ["format": ["type": "json_schema", "schema": Self.schema]],
-            "messages": [["role": "user", "content": transcript]],
+            "messages": [["role": "user", "content": user]],
         ]
 
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
@@ -97,13 +118,18 @@ struct CommandInterpreter {
         return try Self.parse(responseData: data)
     }
 
-    static func parse(responseData: Data) throws -> InterpretedCommand {
+    /// Przyjmuje `{"actions":[…]}`; dla zgodności także pojedynczy obiekt akcji.
+    static func parse(responseData: Data) throws -> [InterpretedCommand] {
         guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let content = json["content"] as? [[String: Any]],
               let text = content.first(where: { $0["type"] as? String == "text" })?["text"] as? String,
               let textData = text.data(using: .utf8) else {
             throw InterpreterError.badResponse("nieoczekiwany format odpowiedzi")
         }
-        return try JSONDecoder().decode(InterpretedCommand.self, from: textData)
+        struct Batch: Decodable { var actions: [InterpretedCommand] }
+        if let batch = try? JSONDecoder().decode(Batch.self, from: textData) {
+            return batch.actions
+        }
+        return [try JSONDecoder().decode(InterpretedCommand.self, from: textData)]
     }
 }
