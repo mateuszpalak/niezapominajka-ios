@@ -3,7 +3,8 @@ import EventKit
 
 /// Wydarzenia w Kalendarzu Apple (EventKit).
 struct CalendarService {
-    private static let sharedStore = EKEventStore()
+    /// EKEventStore jest bezpieczny do użycia z wielu wątków (dokumentacja EventKit), a pole jest stałe.
+    nonisolated(unsafe) private static let sharedStore = EKEventStore()
     private var store: EKEventStore { Self.sharedStore }
 
     /// Tworzy wydarzenie (domyślnie 60 min) z alertem 30 min przed. Zwraca identyfikator (do „Cofnij”).
@@ -45,8 +46,15 @@ struct CalendarService {
         store.calendars(for: .event).filter(\.allowsContentModifications)
     }
 
+    /// Wydarzenie w formie, którą można bezpiecznie przekazać między wątkami.
+    struct EventSummary: Sendable {
+        let title: String
+        let start: Date
+        let isAllDay: Bool
+    }
+
     /// Wydarzenia z danego dnia, posortowane po godzinie rozpoczęcia.
-    func events(on day: Date) async throws -> [EKEvent] {
+    func events(on day: Date) async throws -> [EventSummary] {
         guard try await store.requestFullAccessToEvents() else { return [] }
         let start = Calendar.current.startOfDay(for: day)
         let predicate = store.predicateForEvents(
@@ -54,7 +62,9 @@ struct CalendarService {
         // events(matching:) jest synchroniczne — nie blokuj głównego wątku.
         let store = self.store
         return await Task.detached {
-            store.events(matching: predicate).sorted { $0.startDate < $1.startDate }
+            store.events(matching: predicate)
+                .sorted { $0.startDate < $1.startDate }
+                .map { EventSummary(title: $0.title ?? "", start: $0.startDate, isAllDay: $0.isAllDay) }
         }.value
     }
 }

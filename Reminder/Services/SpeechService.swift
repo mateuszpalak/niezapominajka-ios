@@ -26,7 +26,9 @@ final class SpeechService: NSObject, ObservableObject {
     private var startedAt = Date()
     private var onFinish: ((String) -> Void)?
 
-    static func requestPermissions() async -> Bool {
+    /// `nonisolated`: callback zgody przychodzi na wątku w tle — w trybie Swift 6
+    /// domknięcie odziedziczyłoby @MainActor i wywróciło aplikację przy sprawdzeniu izolacji.
+    nonisolated static func requestPermissions() async -> Bool {
         let speech = await withCheckedContinuation { cont in
             SFSpeechRecognizer.requestAuthorization { cont.resume(returning: $0 == .authorized) }
         }
@@ -81,20 +83,17 @@ final class SpeechService: NSObject, ObservableObject {
 
             let input = audioEngine.inputNode
             let format = input.outputFormat(forBus: 0)
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-                self?.request?.append(buffer)
-            }
+            input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tapBlock(appendingTo: request))
             audioEngine.prepare()
             try audioEngine.start()
             isListening = true
             startedAt = .now
             resetSilenceTimer()
 
-            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            task = recognizer.recognitionTask(with: request, resultHandler: Self.resultHandler { [weak self] text, isFinal, failed in
                 Task { @MainActor in
                     guard let self else { return }
-                    if let result {
-                        let text = result.bestTranscription.formattedString
+                    if let text {
                         let limit = CommandInterpreter.maxTranscriptLength
                         guard text.count < limit else {
                             self.transcript = Self.truncated(text, to: limit)
@@ -103,16 +102,32 @@ final class SpeechService: NSObject, ObservableObject {
                         }
                         self.transcript = text
                         self.resetSilenceTimer()
-                        if result.isFinal { self.finish() }
+                        if isFinal { self.finish() }
                     }
-                    if error != nil, self.isListening { self.finish() }
+                    if failed, self.isListening { self.finish() }
                 }
-            }
+            })
         } catch {
             errorMessage = "Nie udało się uruchomić mikrofonu: \(error.localizedDescription)"
             isListening = false
             stopAudio()
             finish()
+        }
+    }
+
+    // Domknięcia wołane przez system na wątkach audio / rozpoznawania mowy budujemy poza
+    // @MainActor, żeby nie dziedziczyły izolacji (Swift 6 sprawdza ją w trakcie działania).
+
+    private nonisolated static func tapBlock(appendingTo request: SFSpeechAudioBufferRecognitionRequest) -> AVAudioNodeTapBlock {
+        { buffer, _ in request.append(buffer) }
+    }
+
+    /// Przekazuje dalej tylko wartości Sendable: tekst, czy wynik końcowy, czy wystąpił błąd.
+    private nonisolated static func resultHandler(
+        _ handle: @escaping @Sendable (String?, Bool, Bool) -> Void
+    ) -> (SFSpeechRecognitionResult?, Error?) -> Void {
+        { result, error in
+            handle(result?.bestTranscription.formattedString, result?.isFinal ?? false, error != nil)
         }
     }
 

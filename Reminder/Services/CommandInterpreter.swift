@@ -21,7 +21,8 @@ enum InterpreterError: LocalizedError {
 struct CommandInterpreter {
     var apiKey: String
 
-    private static let actionSchema: [String: Any] = [
+    // Stałe literały JSON Schema — nigdy niezmieniane, więc bezpieczne między wątkami.
+    nonisolated(unsafe) private static let actionSchema: [String: Any] = [
         "type": "object",
         "properties": [
             "action": ["type": "string", "enum": ["reminder", "note", "alarm", "shopping", "event", "message", "call", "query", "complete"]],
@@ -43,7 +44,7 @@ struct CommandInterpreter {
         "additionalProperties": false,
     ]
 
-    private static let schema: [String: Any] = [
+    nonisolated(unsafe) private static let schema: [String: Any] = [
         "type": "object",
         "properties": ["actions": ["type": "array", "items": actionSchema]],
         "required": ["actions"],

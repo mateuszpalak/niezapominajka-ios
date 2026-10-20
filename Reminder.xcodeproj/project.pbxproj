@@ -457,7 +457,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = software.plq.niezapominajka;
 				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.10;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -538,7 +538,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = software.plq.niezapominajka.widget;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION";
-				SWIFT_VERSION = 5.10;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -573,7 +573,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = software.plq.niezapominajka.widget;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION";
-				SWIFT_VERSION = 5.10;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
@@ -592,7 +592,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = software.plq.niezapominajka;
 				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.10;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;

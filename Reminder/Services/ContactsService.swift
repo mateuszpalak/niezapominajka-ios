@@ -51,20 +51,21 @@ struct ContactsService {
         }
         // unifiedContacts jest synchroniczne — przy dużej bazie kontaktów
         // zamroziłoby UI; wykonaj w tle.
-        let contacts = try await Task.detached {
+        // CNContact nie jest Sendable — zamień na ContactMatch jeszcze w tle.
+        return try await Task.detached {
             let keys = [CNContactPhoneNumbersKey as CNKeyDescriptor,
                         CNContactFormatter.descriptorForRequiredKeys(for: .fullName)]
-            return try store.unifiedContacts(
+            let contacts = try store.unifiedContacts(
                 matching: CNContact.predicateForContacts(matchingName: name), keysToFetch: keys)
+            return contacts.filter { !$0.phoneNumbers.isEmpty }.map { contact in
+                ContactMatch(
+                    id: contact.identifier,
+                    name: CNContactFormatter.string(from: contact, style: .fullName) ?? name,
+                    numbers: contact.phoneNumbers.map {
+                        ContactMatch.Phone(label: Self.polishLabel($0.label), value: $0.value.stringValue)
+                    })
+            }
         }.value
-        return contacts.filter { !$0.phoneNumbers.isEmpty }.map { contact in
-            ContactMatch(
-                id: contact.identifier,
-                name: CNContactFormatter.string(from: contact, style: .fullName) ?? name,
-                numbers: contact.phoneNumbers.map {
-                    ContactMatch.Phone(label: Self.polishLabel($0.label), value: $0.value.stringValue)
-                })
-        }
     }
 
     /// Najlepsze dopasowanie (dokładna nazwa ma pierwszeństwo).

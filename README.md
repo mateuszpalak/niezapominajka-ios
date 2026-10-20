@@ -6,8 +6,9 @@
 
 **Polski asystent głosowy na iPhone'a.** Mówisz, co trzeba zrobić, a on zapisuje przypomnienie, wydarzenie, notatkę albo listę zakupów, wysyła SMS lub dzwoni.
 
+[![CI](https://github.com/mateuszpalak/niezapominajka-ios/actions/workflows/ci.yml/badge.svg)](https://github.com/mateuszpalak/niezapominajka-ios/actions/workflows/ci.yml)
 [![iOS 26+](https://img.shields.io/badge/iOS-26%2B-000000?logo=apple&logoColor=white)](#wymagania)
-[![Swift](https://img.shields.io/badge/Swift-5.10-F05138?logo=swift&logoColor=white)](https://swift.org)
+[![Swift](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-0A84FF?logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
 [![Claude Haiku 5.5](https://img.shields.io/badge/AI-Claude%20Haiku%205.5-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude)
 [![Licencja MIT](https://img.shields.io/badge/licencja-MIT-34C759)](LICENSE)

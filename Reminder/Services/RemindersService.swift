@@ -6,7 +6,8 @@ import MapKit
 /// Zapis do Przypomnień Apple (EventKit).
 struct RemindersService {
     /// Jeden współdzielony magazyn EventKit — tworzenie EKEventStore jest kosztowne.
-    private static let sharedStore = EKEventStore()
+    /// EKEventStore jest bezpieczny do użycia z wielu wątków (dokumentacja EventKit), a pole jest stałe.
+    nonisolated(unsafe) private static let sharedStore = EKEventStore()
     private var store: EKEventStore { Self.sharedStore }
 
     func requestAccess() async throws -> Bool {
@@ -107,13 +108,29 @@ struct RemindersService {
         }?.title
     }
 
+    /// Przypomnienie w formie, którą można bezpiecznie przekazać między wątkami (EKReminder nie jest Sendable).
+    struct ReminderSummary: Sendable {
+        let id: String
+        let title: String
+        let dueDateComponents: DateComponents?
+    }
+
     /// Niewykonane przypomnienia z terminem do końca podanego dnia.
-    func incompleteReminders(until end: Date) async throws -> [EKReminder] {
+    func incompleteReminders(until end: Date) async throws -> [ReminderSummary] {
         guard try await requestAccess() else { return [] }
         let predicate = store.predicateForIncompleteReminders(
             withDueDateStarting: nil, ending: end, calendars: nil)
-        return await withCheckedContinuation { cont in
-            store.fetchReminders(matching: predicate) { cont.resume(returning: $0 ?? []) }
+        return await fetchSummaries(matching: predicate)
+    }
+
+    private func fetchSummaries(matching predicate: NSPredicate) async -> [ReminderSummary] {
+        await withCheckedContinuation { cont in
+            store.fetchReminders(matching: predicate) { reminders in
+                cont.resume(returning: (reminders ?? []).map {
+                    ReminderSummary(id: $0.calendarItemIdentifier, title: $0.title ?? "",
+                                    dueDateComponents: $0.dueDateComponents)
+                })
+            }
         }
     }
 
@@ -125,16 +142,14 @@ struct RemindersService {
         }
         let predicate = store.predicateForIncompleteReminders(
             withDueDateStarting: nil, ending: nil, calendars: nil)
-        let reminders: [EKReminder] = await withCheckedContinuation { cont in
-            store.fetchReminders(matching: predicate) { cont.resume(returning: $0 ?? []) }
-        }
+        let reminders = await fetchSummaries(matching: predicate)
         let needle = phrase.lowercased()
-        let match = reminders.first {
-            let title = ($0.title ?? "").lowercased()
+        let found = reminders.first {
+            let title = $0.title.lowercased()
             return title.contains(needle) || needle.contains(title)
                 || !Set(title.split(separator: " ")).isDisjoint(with: needle.split(separator: " "))
         }
-        guard let match else {
+        guard let found, let match = store.calendarItem(withIdentifier: found.id) as? EKReminder else {
             throw NSError(domain: "Reminder", code: 9,
                           userInfo: [NSLocalizedDescriptionKey: "Nie znalazłem przypomnienia pasującego do „\(phrase)”."])
         }

@@ -21,7 +21,7 @@ struct ActionCard: View {
         VStack(spacing: 0) {
             header
             if editable, [.reminder, .event, .note].contains(kind) {
-                Picker("Typ", selection: Binding(get: { kind }, set: onType)) {
+                Picker("Typ", selection: Binding(get: { kind }, set: { onType($0) })) {
                     Text("Przypomnienie").tag(CommandAction.reminder)
                     Text("Wydarzenie").tag(CommandAction.event)
                     Text("Notatka").tag(CommandAction.note)

@@ -120,8 +120,8 @@ struct ActionExecutor {
         } else {
             let list = reminders.prefix(10).map { reminder -> String in
                 guard let comps = reminder.dueDateComponents, let date = calendar.date(from: comps),
-                      comps.hour != nil else { return reminder.title ?? "" }
-                return "\(reminder.title ?? "") o \(date.formatted(timeFormat))"
+                      comps.hour != nil else { return reminder.title }
+                return "\(reminder.title) o \(date.formatted(timeFormat))"
             }
             parts.append("Przypomnienia (\(reminders.count)): \(list.joined(separator: ", ")).")
         }
@@ -129,8 +129,8 @@ struct ActionExecutor {
             parts.append("Kalendarz jest pusty.")
         } else {
             let list = events.prefix(10).map { event in
-                event.isAllDay ? (event.title ?? "")
-                    : "\(event.startDate.formatted(timeFormat)) — \(event.title ?? "")"
+                event.isAllDay ? event.title
+                    : "\(event.start.formatted(timeFormat)) — \(event.title)"
             }
             parts.append("Wydarzenia (\(events.count)): \(list.joined(separator: ", ")).")
         }
