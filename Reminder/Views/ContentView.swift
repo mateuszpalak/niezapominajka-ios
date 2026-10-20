@@ -48,6 +48,9 @@ struct ContentView: View {
         }
         .onAppear {
             capture.attach(modelContext)
+            #if DEBUG
+            if ScreenshotDemo.apply(to: capture, context: modelContext, openSettings: { showSettings = true }) { return }
+            #endif
             consumeStartRequest()
             autoStart()
         }
@@ -476,6 +479,9 @@ struct ContentView: View {
 
     /// „Słuchaj po otwarciu”: nasłuch rusza sam, gdy aplikacja staje się aktywna na ekranie startowym.
     private func autoStart() {
+        #if DEBUG
+        guard ScreenshotDemo.scene == nil else { return }
+        #endif
         guard listenOnOpen, capture.phase == .idle, !showSettings, capture.compose == nil else { return }
         startWhenActive()
     }

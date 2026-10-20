@@ -14,6 +14,8 @@ targets:
       path: Reminder/Info.plist
       properties:
         CFBundleDisplayName: Niezapominajka
+        CFBundleDevelopmentRegion: pl
+        CFBundleLocalizations: [pl]
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "3"
         UILaunchScreen: {}

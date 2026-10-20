@@ -1,18 +1,58 @@
+<div align="center">
+
+<img src="Reminder/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="112" alt="Ikona Niezapominajki">
+
 # Niezapominajka
 
-Polska aplikacja na iPhone'a do głosowych poleceń. Mówisz, co trzeba zrobić, a ona zapisuje przypomnienie, wydarzenie, notatkę albo listę zakupów, wysyła SMS lub dzwoni. Polecenia rozpoznaje [Claude](https://www.anthropic.com/claude) (model Claude Haiku 5.5).
+**Polski asystent głosowy na iPhone'a.** Mówisz, co trzeba zrobić, a on zapisuje przypomnienie, wydarzenie, notatkę albo listę zakupów, wysyła SMS lub dzwoni.
+
+[![iOS 26+](https://img.shields.io/badge/iOS-26%2B-000000?logo=apple&logoColor=white)](#wymagania)
+[![Swift](https://img.shields.io/badge/Swift-5.10-F05138?logo=swift&logoColor=white)](https://swift.org)
+[![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-0A84FF?logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
+[![Claude Haiku 5.5](https://img.shields.io/badge/AI-Claude%20Haiku%205.5-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude)
+[![Licencja MIT](https://img.shields.io/badge/licencja-MIT-34C759)](LICENSE)
+
+</div>
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/screenshots/home.png" alt="Ekran startowy z historią"><br><sub><b>Start</b> · podpowiedzi i historia „Ostatnio”</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/listening.png" alt="Nasłuch z paskiem ciszy"><br><sub><b>Nasłuch</b> · kończy się sam po chwili ciszy</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/result.png" alt="Zapisane przypomnienie"><br><sub><b>Zapisane od razu</b> · bez potwierdzania</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/multi.png" alt="Kilka poleceń naraz"><br><sub><b>Kilka poleceń naraz</b> · osobna karta na każde</sub></td>
+    <td align="center"><img src="docs/screenshots/sms.png" alt="SMS z odliczaniem"><br><sub><b>SMS i połączenie</b> · po odliczaniu albo od razu</sub></td>
+    <td align="center"><img src="docs/screenshots/settings.png" alt="Ustawienia"><br><sub><b>Ustawienia</b> · klucz API i sposób działania</sub></td>
+  </tr>
+</table>
 
 ## Co potrafi
 
-- **Słucha od razu po otwarciu.** Nagranie kończy się samo po krótkiej ciszy.
-- **Zapisuje bez potwierdzania.** Przypomnienia, wydarzenia, notatki i zakupy trafiają od razu do aplikacji Apple, a „Odrzuć” lub „Cofnij” je usuwa.
-- **SMS i połączenie po odliczaniu** z możliwością anulowania albo wykonania od razu.
-- **Kilka poleceń naraz**, np. „dodaj mleko do zakupów i przypomnij mi o 20 o tabletce”.
-- **Dopytuje**, gdy pasuje kilka kontaktów („Do której Ani wysłać?”).
-- **Edycja treści polecenia** i ponowna analiza.
-- **Tryb podglądu**, w którym nic nie zapisuje się bez zatwierdzenia, a pola karty da się edytować.
-- **Widżet na ekranie blokady**, kontrolka dla Action Button i skrót Siri.
-- **Historia „Ostatnio”** z usuwaniem gestem.
+| | |
+|---|---|
+| 🎙️ **Słucha od razu** | Nasłuch startuje po otwarciu aplikacji i kończy się sam po krótkiej ciszy. |
+| ⚡ **Zapisuje bez pytania** | Przypomnienia, wydarzenia, notatki i zakupy trafiają od razu do aplikacji Apple. „Odrzuć” lub „Cofnij” je usuwa. |
+| ⏱️ **SMS i połączenie z odliczaniem** | Zanim wyśle albo zadzwoni, odlicza kilka sekund. Możesz anulować albo wykonać od razu. |
+| 🧩 **Kilka poleceń naraz** | „Dodaj mleko do zakupów i przypomnij mi o 20 o tabletce” daje dwie karty. |
+| 🙋 **Dopytuje** | Gdy pasuje kilka kontaktów, pyta: „Do której Ani wysłać?”. |
+| ✏️ **Edycja polecenia** | Popraw rozpoznany tekst i przeanalizuj go jeszcze raz. |
+| 👀 **Tryb podglądu** | Opcjonalnie nic nie zapisuje się bez zatwierdzenia, a pola karty da się edytować. |
+| 🔒 **Ekran blokady i Action Button** | Widżet, kontrolka i skrót Siri otwierają aplikację gotową do słuchania. |
+
+## Jak to działa
+
+```mermaid
+flowchart LR
+    A[🎙️ Mowa] -->|rozpoznawanie mowy Apple| B[📝 Tekst]
+    B -->|Claude Haiku 5.5| C[🧩 Polecenia JSON]
+    C --> D[⏰ Przypomnienia]
+    C --> E[📅 Kalendarz]
+    C --> F[🛒 Zakupy i notatki]
+    C --> G[💬 SMS / 📞 połączenie]
+```
+
+Aplikacja nie ma własnego serwera. Tekst polecenia trafia prosto do Claude API z twoim kluczem, a wynik zapisuje się w systemowych aplikacjach Przypomnienia i Kalendarz.
 
 ## Wymagania
 
@@ -28,7 +68,9 @@ xcodegen generate
 open Reminder.xcodeproj
 ```
 
-W Xcode wybierz swój zespół w zakładce *Signing & Capabilities* dla targetów `Reminder` i `ReminderWidget`, a potem uruchom aplikację na iPhonie. W aplikacji otwórz Ustawienia (zębatka) i wklej klucz API. Stan „Klucz działa” potwierdzi, że jest poprawny.
+1. W Xcode wybierz swój zespół w *Signing & Capabilities* dla targetów `Reminder` i `ReminderWidget`.
+2. Uruchom aplikację na iPhonie.
+3. Otwórz Ustawienia (zębatka) i wklej klucz API. Stan „Klucz działa” potwierdzi, że jest poprawny.
 
 Testy:
 
@@ -37,11 +79,24 @@ xcodebuild test -project Reminder.xcodeproj -scheme Reminder \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+<details>
+<summary>Zrzuty ekranu do README</summary>
+
+Build Debug ma tryb demo, który ustawia aplikację w wybranym stanie bez mikrofonu i bez zapisywania czegokolwiek:
+
+```sh
+xcrun simctl launch booted software.plq.niezapominajka -demo multi -AppleLanguages "(pl)"
+```
+
+Dostępne stany: `home`, `listening`, `result`, `multi`, `sms`, `settings`.
+
+</details>
+
 ## Prywatność
 
-- Klucz API jest przechowywany tylko w Keychain na urządzeniu.
-- Do Claude API trafia wyłącznie tekst rozpoznanego polecenia, bez nagrania głosu. Mowę na tekst zamienia systemowe rozpoznawanie mowy Apple.
-- Aplikacja nie ma własnego serwera ani analityki.
+- 🔑 Klucz API jest przechowywany tylko w Keychain na urządzeniu.
+- 📝 Do Claude API trafia wyłącznie tekst rozpoznanego polecenia, bez nagrania głosu. Mowę na tekst zamienia systemowe rozpoznawanie mowy Apple.
+- 🚫 Brak własnego serwera i analityki.
 
 ## Struktura
 
@@ -55,4 +110,4 @@ xcodebuild test -project Reminder.xcodeproj -scheme Reminder \
 
 ## Licencja
 
-[MIT](LICENSE)
+[MIT](LICENSE) © 2026 Mateusz Palak
