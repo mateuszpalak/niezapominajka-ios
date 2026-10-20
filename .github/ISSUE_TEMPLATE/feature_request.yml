@@ -1,0 +1,29 @@
+name: 💡 Pomysł na funkcję
+description: Zaproponuj nową funkcję albo ulepszenie
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Jaki problem to rozwiąże?
+      description: Opisz sytuację, w której tego brakuje.
+      placeholder: Często dyktuję przypomnienia w samochodzie i …
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Jak to mogłoby działać?
+      description: Przykładowe polecenie głosowe i oczekiwany efekt bardzo pomagają.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Rozważane alternatywy
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Pomoc
+      options:
+        - label: Chcę pomóc to zaimplementować

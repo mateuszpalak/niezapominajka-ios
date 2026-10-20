@@ -1,0 +1,49 @@
+name: 🐞 Błąd
+description: Coś działa inaczej, niż powinno
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Dzięki za zgłoszenie! Zanim wyślesz, sprawdź, czy podobny błąd nie został już zgłoszony.
+        **Nie wklejaj swojego klucza API** ani prywatnych danych z kontaktów czy kalendarza.
+  - type: textarea
+    id: what
+    attributes:
+      label: Co się stało?
+      description: Opisz błąd. Jeśli dotyczy polecenia głosowego, podaj, co dokładnie powiedziałeś.
+      placeholder: Powiedziałem „Przypomnij mi jutro o 15 o lekach”, a przypomnienie zapisało się na dziś.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Czego się spodziewałeś?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Jak to powtórzyć?
+      placeholder: |
+        1. Otwórz aplikację
+        2. Powiedz „…”
+        3. Zobacz …
+  - type: input
+    id: ios
+    attributes:
+      label: Wersja iOS i model iPhone'a
+      placeholder: iOS 26.1, iPhone 16 Pro
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Wersja aplikacji
+      description: Numer buildu z TestFlight albo commit, z którego budujesz.
+      placeholder: 1.0 (3) albo 10b4816
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Zrzuty ekranu
+      description: Przeciągnij tu obrazki, jeśli pomagają zrozumieć problem.

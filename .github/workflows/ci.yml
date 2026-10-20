@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build i testy
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zainstaluj XcodeGen
+        run: brew install xcodegen
+
+      - name: Wygeneruj projekt
+        run: xcodegen generate
+
+      - name: Wybierz symulator iPhone'a
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          ios = [d for rt, ds in devices.items() if "iOS" in rt for d in ds if d["name"].startswith("iPhone")]
+          print(ios[-1]["udid"])')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build i testy
+        run: |
+          xcodebuild test \
+            -project Reminder.xcodeproj \
+            -scheme Reminder \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO
