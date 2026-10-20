@@ -30,7 +30,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>3</string>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>Aplikacja ustawia alarmy dla pilnych przypomnień.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
