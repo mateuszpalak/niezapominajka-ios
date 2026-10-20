@@ -3,12 +3,15 @@ import Foundation
 enum InterpreterError: LocalizedError {
     case missingAPIKey
     case invalidAPIKey
+    case tooLong
     case badResponse(String)
 
     var errorDescription: String? {
         switch self {
         case .missingAPIKey: return "Brak klucza Claude API — ustaw go w ustawieniach."
         case .invalidAPIKey: return "Klucz API jest nieprawidłowy — wklej go ponownie w Ustawieniach."
+        case .tooLong:
+            return "Polecenie jest za długie (maks. \(CommandInterpreter.maxTranscriptLength) znaków) — podziel je na krótsze."
         case .badResponse(let detail): return "Błąd interpretacji: \(detail)"
         }
     }
@@ -89,8 +92,12 @@ struct CommandInterpreter {
         """
     }
 
+    /// Limit tekstu wysyłanego do Claude — polecenia głosowe są krótkie, dłuższy tekst to raczej pomyłka albo nadużycie.
+    static let maxTranscriptLength = 500
+
     func interpret(transcript: String) async throws -> [InterpretedCommand] {
-        try await send(system: Self.systemPrompt(), user: transcript)
+        guard transcript.count <= Self.maxTranscriptLength else { throw InterpreterError.tooLong }
+        return try await send(system: Self.systemPrompt(), user: transcript)
     }
 
     private func send(system: String, user: String) async throws -> [InterpretedCommand] {

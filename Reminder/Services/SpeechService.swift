@@ -3,7 +3,8 @@ import AVFoundation
 import Speech
 
 /// Nasłuch mikrofonu + rozpoznawanie polskiej mowy (SFSpeechRecognizer, pl-PL).
-/// Auto-stop po 2,5 s ciszy od ostatniego fragmentu transkryptu (postęp ciszy w `silenceProgress`).
+/// Auto-stop po 2,5 s ciszy od ostatniego fragmentu transkryptu (postęp ciszy w `silenceProgress`),
+/// po `maxDuration` nagrywania albo gdy tekst dojdzie do limitu interpretera.
 @MainActor
 final class SpeechService: NSObject, ObservableObject {
     @Published var transcript: String = ""
@@ -13,6 +14,8 @@ final class SpeechService: NSObject, ObservableObject {
     @Published var silenceProgress: Double = 0
 
     static let silenceTimeout: TimeInterval = 2.5
+    /// Górny limit jednego nagrania — chroni przed wysłaniem do Claude bardzo długiego tekstu.
+    static let maxDuration: TimeInterval = 60
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pl-PL"))
     private let audioEngine = AVAudioEngine()
@@ -20,6 +23,7 @@ final class SpeechService: NSObject, ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var silenceTimer: Timer?
     private var lastHeard = Date()
+    private var startedAt = Date()
     private var onFinish: ((String) -> Void)?
 
     static func requestPermissions() async -> Bool {
@@ -83,13 +87,21 @@ final class SpeechService: NSObject, ObservableObject {
             audioEngine.prepare()
             try audioEngine.start()
             isListening = true
+            startedAt = .now
             resetSilenceTimer()
 
             task = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 Task { @MainActor in
                     guard let self else { return }
                     if let result {
-                        self.transcript = result.bestTranscription.formattedString
+                        let text = result.bestTranscription.formattedString
+                        let limit = CommandInterpreter.maxTranscriptLength
+                        guard text.count < limit else {
+                            self.transcript = Self.truncated(text, to: limit)
+                            self.finish()
+                            return
+                        }
+                        self.transcript = text
                         self.resetSilenceTimer()
                         if result.isFinal { self.finish() }
                     }
@@ -118,10 +130,19 @@ final class SpeechService: NSObject, ObservableObject {
 
     /// Cisza liczy się dopiero, gdy coś już usłyszeliśmy.
     private func tickSilence() {
+        if isListening, Date.now.timeIntervalSince(startedAt) >= Self.maxDuration { finish(); return }
         guard isListening, !transcript.isEmpty else { silenceProgress = 0; return }
         let progress = min(1, Date.now.timeIntervalSince(lastHeard) / Self.silenceTimeout)
         silenceProgress = progress
         if progress >= 1 { finish() }
+    }
+
+    /// Ucina tekst do limitu na granicy słowa.
+    static func truncated(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        let head = text.prefix(limit)
+        guard let space = head.lastIndex(of: " ") else { return String(head) }
+        return String(head[..<space])
     }
 
     private func finish() {

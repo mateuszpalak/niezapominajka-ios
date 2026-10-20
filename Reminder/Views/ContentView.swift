@@ -508,6 +508,7 @@ struct EditTranscriptSheet: View {
     var onCancel: () -> Void
     var onAnalyze: () -> Void
     @FocusState private var focused: Bool
+    private let limit = CommandInterpreter.maxTranscriptLength
 
     var body: some View {
         NavigationStack {
@@ -516,8 +517,17 @@ struct EditTranscriptSheet: View {
                     TextField("Polecenie", text: $text, axis: .vertical)
                         .lineLimit(3...8)
                         .focused($focused)
+                        .onChange(of: text) { _, new in
+                            if new.count > limit { text = String(new.prefix(limit)) }
+                        }
                 } footer: {
-                    Text("Popraw treść, a asystent przeanalizuje polecenie jeszcze raz. Zapisane już elementy zostaną zastąpione.")
+                    HStack(alignment: .top) {
+                        Text("Popraw treść, a asystent przeanalizuje polecenie jeszcze raz. Zapisane już elementy zostaną zastąpione.")
+                        Spacer(minLength: 12)
+                        Text("\(text.count)/\(limit)")
+                            .monospacedDigit()
+                            .foregroundStyle(text.count >= limit ? Color(hex: 0xFF3B30) : .secondary)
+                    }
                 }
             }
             .navigationTitle("Edytuj polecenie")

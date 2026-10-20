@@ -61,6 +61,23 @@ final class CommandInterpreterTests: XCTestCase {
         XCTAssertEqual(CommandInterpreter.errorMessage(from: Data("nie json".utf8)), "nie json")
     }
 
+    func testTooLongTranscriptIsRejectedBeforeSending() async {
+        let long = String(repeating: "a", count: CommandInterpreter.maxTranscriptLength + 1)
+        do {
+            _ = try await CommandInterpreter(apiKey: "test").interpret(transcript: long)
+            XCTFail("oczekiwano błędu tooLong")
+        } catch InterpreterError.tooLong {
+        } catch {
+            XCTFail("nieoczekiwany błąd: \(error)")
+        }
+    }
+
+    @MainActor
+    func testTranscriptTruncatesOnWordBoundary() {
+        XCTAssertEqual(SpeechService.truncated("Kup mleko i masło", to: 12), "Kup mleko i")
+        XCTAssertEqual(SpeechService.truncated("krótko", to: 12), "krótko")
+    }
+
     func testShoppingCardTitleListsItems() {
         let shopping = PlannedAction(command: InterpretedCommand(
             action: .shopping, title: "Zakupy", items: ["Mleko", "Masło", "Chleb"], confirmation: "OK", listName: "Zakupy"))
