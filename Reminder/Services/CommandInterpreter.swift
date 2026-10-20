@@ -95,10 +95,12 @@ struct CommandInterpreter {
         guard !apiKey.isEmpty else { throw InterpreterError.missingAPIKey }
 
         let body: [String: Any] = [
-            "model": "claude-haiku-4-5",
+            "model": "claude-haiku-5-5",
             "max_tokens": 2048,
             "system": system,
-            "output_config": ["format": ["type": "json_schema", "schema": Self.schema]],
+            // Krótkie polecenia nie potrzebują myślenia — szybciej i taniej.
+            "thinking": ["type": "disabled"],
+            "output_config": ["effort": "low", "format": ["type": "json_schema", "schema": Self.schema]],
             "messages": [["role": "user", "content": user]],
         ]
 
@@ -120,7 +122,11 @@ struct CommandInterpreter {
 
     /// Przyjmuje `{"actions":[…]}`; dla zgodności także pojedynczy obiekt akcji.
     static func parse(responseData: Data) throws -> [InterpretedCommand] {
-        guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+        let root = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        if root?["stop_reason"] as? String == "refusal" {
+            throw InterpreterError.badResponse("model odmówił wykonania polecenia")
+        }
+        guard let json = root,
               let content = json["content"] as? [[String: Any]],
               let text = content.first(where: { $0["type"] as? String == "text" })?["text"] as? String,
               let textData = text.data(using: .utf8) else {
