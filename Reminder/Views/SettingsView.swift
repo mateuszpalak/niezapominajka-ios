@@ -8,6 +8,11 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.autoExecute) private var autoExecute = "3"
     @AppStorage(AppSettings.Key.defaultCalendar) private var defaultCalendar = ""
     @AppStorage(AppSettings.Key.defaultShoppingList) private var defaultShoppingList = ""
+    @AppStorage(AppSettings.Key.tickTickShoppingList) private var tickTickShoppingList = ""
+    @AppStorage(AppSettings.Key.taskDestination) private var taskDestination = TaskDestination.apple
+    @State private var tickTickToken: String = KeychainStore.loadTickTickToken() ?? ""
+    @State private var tokenStatus: CommandInterpreter.KeyStatus?
+    @State private var checkingToken = false
     @State private var calendars: [String] = []
     @State private var lists: [String] = []
     @State private var systemCalendar = ""
@@ -17,25 +22,40 @@ struct SettingsView: View {
     @State private var checkingKey = false
 
     private var trimmedKey: String { apiKey.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedToken: String { tickTickToken.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    private var statusText: String {
-        if trimmedKey.isEmpty { return "Brak klucza" }
-        if checkingKey { return "Sprawdzam…" }
-        switch keyStatus {
-        case .valid: return "Klucz działa"
-        case .invalid: return "Nieprawidłowy klucz"
-        case .unreachable: return "Nie można sprawdzić"
-        case nil: return "Sprawdzam…"
+    /// Zadania idą do TickTick — listy i token bierzemy stamtąd.
+    private var usesTickTick: Bool { taskDestination == .ticktick }
+
+    /// Wiersz „Stan” z kropką, wspólny dla klucza Claude i tokenu TickTick.
+    private func statusRow(_ status: CommandInterpreter.KeyStatus?, checking: Bool, isEmpty: Bool,
+                           noun: (missing: String, valid: String, invalid: String)) -> some View {
+        let text: String
+        let color: Color
+        if isEmpty {
+            (text, color) = (noun.missing, Color(.systemGray4))
+        } else if checking {
+            (text, color) = ("Sprawdzam…", Color(.systemGray4))
+        } else {
+            switch status {
+            case .valid: (text, color) = (noun.valid, Color(hex: 0x34C759))
+            case .invalid: (text, color) = (noun.invalid, Color(hex: 0xFF3B30))
+            case .unreachable: (text, color) = ("Nie można sprawdzić", Color(hex: 0xFF9500))
+            case nil: (text, color) = ("Sprawdzam…", Color(.systemGray4))
+            }
         }
-    }
-
-    private var statusColor: Color {
-        if trimmedKey.isEmpty || checkingKey { return Color(.systemGray4) }
-        switch keyStatus {
-        case .valid: return Color(hex: 0x34C759)
-        case .invalid: return Color(hex: 0xFF3B30)
-        case .unreachable: return Color(hex: 0xFF9500)
-        case nil: return Color(.systemGray4)
+        return HStack {
+            Text("Stan")
+            Spacer()
+            if checking {
+                ProgressView().controlSize(.mini)
+            } else {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+            }
+            Text(text)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -51,19 +71,8 @@ struct SettingsView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
-                    HStack {
-                        Text("Stan")
-                        Spacer()
-                        if checkingKey {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Circle()
-                                .fill(statusColor)
-                                .frame(width: 8, height: 8)
-                        }
-                        Text(statusText)
-                            .foregroundStyle(.secondary)
-                    }
+                    statusRow(keyStatus, checking: checkingKey, isEmpty: trimmedKey.isEmpty,
+                              noun: ("Brak klucza", "Klucz działa", "Nieprawidłowy klucz"))
                     // Sprawdź klucz chwilę po wpisaniu/wklejeniu.
                     .task(id: trimmedKey) { await verifyKey() }
                 } header: {
@@ -97,6 +106,31 @@ struct SettingsView: View {
                          : "Notatki, przypomnienia, wydarzenia i zakupy zapisują się od razu i można je cofnąć. SMS i połączenie wykonują się po odliczaniu.")
                 }
 
+                Section {
+                    Picker("Zapisuj w", selection: $taskDestination) {
+                        ForEach(TaskDestination.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    if usesTickTick {
+                        HStack(spacing: 12) {
+                            Text("Token")
+                            SecureField("tp_…", text: $tickTickToken)
+                                .multilineTextAlignment(.trailing)
+                                .foregroundStyle(.secondary)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
+                        statusRow(tokenStatus, checking: checkingToken, isEmpty: trimmedToken.isEmpty,
+                                  noun: ("Brak tokenu", "Token działa", "Nieprawidłowy token"))
+                            .task(id: trimmedToken) { await verifyToken() }
+                    }
+                } header: {
+                    Text("Zadania")
+                } footer: {
+                    Text(usesTickTick
+                         ? "Token utworzysz w TickTick w przeglądarce: awatar → Ustawienia → Konto → API Token. Wydarzenia nadal trafiają do Kalendarza Apple."
+                         : "Przypomnienia, notatki i zakupy trafiają do aplikacji Przypomnienia.")
+                }
+
                 Section("Domyślne") {
                     Picker("Kalendarz", selection: Binding(
                         get: { defaultCalendar.isEmpty ? systemCalendar : defaultCalendar },
@@ -105,9 +139,9 @@ struct SettingsView: View {
                                 id: \.self) { Text($0).tag($0) }
                     }
                     Picker("Lista zakupów", selection: Binding(
-                        get: { defaultShoppingList.isEmpty ? detectedShoppingList : defaultShoppingList },
-                        set: { defaultShoppingList = $0 })) {
-                        ForEach(options(lists, current: defaultShoppingList.isEmpty ? detectedShoppingList : defaultShoppingList),
+                        get: { shoppingList.isEmpty ? detectedShoppingList : shoppingList },
+                        set: { shoppingList = $0 })) {
+                        ForEach(options(lists, current: shoppingList.isEmpty ? detectedShoppingList : shoppingList),
                                 id: \.self) { Text($0).tag($0) }
                     }
                 }
@@ -119,9 +153,11 @@ struct SettingsView: View {
                     Button("Gotowe") { dismiss() }
                 }
             }
-            .task { await loadDefaults() }
+            // Listy zależą od miejsca zapisu — wczytaj ponownie po zmianie albo po sprawdzeniu tokenu.
+            .task(id: "\(taskDestination.rawValue)|\(tokenStatus == .valid)") { await loadDefaults() }
             .onDisappear {
                 KeychainStore.saveAPIKey(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+                KeychainStore.saveTickTickToken(trimmedToken)
             }
         }
     }
@@ -138,14 +174,35 @@ struct SettingsView: View {
         keyStatus = status
     }
 
+    private func verifyToken() async {
+        let token = trimmedToken
+        guard !token.isEmpty else { tokenStatus = nil; return }
+        try? await Task.sleep(for: .milliseconds(600))
+        guard !Task.isCancelled else { return }
+        checkingToken = true
+        defer { checkingToken = false }
+        let status = await TickTickService.checkToken(token)
+        guard !Task.isCancelled else { return }
+        tokenStatus = status
+    }
+
+    /// Wybrana lista zakupów — osobno dla Przypomnień Apple i TickTick.
+    private var shoppingList: String {
+        get { usesTickTick ? tickTickShoppingList : defaultShoppingList }
+        nonmutating set {
+            if usesTickTick { tickTickShoppingList = newValue } else { defaultShoppingList = newValue }
+        }
+    }
+
     private func options(_ names: [String], current: String) -> [String] {
         names.contains(current) || current.isEmpty ? names : [current] + names
     }
 
     private func loadDefaults() async {
         calendars = await CalendarService().calendarNames()
-        lists = await RemindersService().listNames()
+        let tasks: any TaskStore = usesTickTick ? TickTickService(token: trimmedToken) : RemindersService()
+        lists = await tasks.listNames()
         systemCalendar = CalendarService().defaultCalendarName() ?? calendars.first ?? ""
-        detectedShoppingList = RemindersService().shoppingListName() ?? "Zakupy"
+        detectedShoppingList = tasks.shoppingListName() ?? "Zakupy"
     }
 }

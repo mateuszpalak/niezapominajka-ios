@@ -34,6 +34,7 @@
 |---|---|
 | 🎙️ **Słucha od razu** | Nasłuch startuje po otwarciu aplikacji i kończy się sam po krótkiej ciszy. |
 | ⚡ **Zapisuje bez pytania** | Przypomnienia, wydarzenia, notatki i zakupy trafiają od razu do aplikacji Apple. „Odrzuć” lub „Cofnij” je usuwa. |
+| ✅ **TickTick** | Opcjonalnie przypomnienia, notatki i zakupy zapisują się w TickTick zamiast w Przypomnieniach. Wydarzenia zostają w Kalendarzu. |
 | ⏱️ **SMS i połączenie z odliczaniem** | Zanim wyśle albo zadzwoni, odlicza kilka sekund. Możesz anulować albo wykonać od razu. |
 | 🧩 **Kilka poleceń naraz** | „Dodaj mleko do zakupów i przypomnij mi o 20 o tabletce” daje dwie karty. |
 | 🙋 **Dopytuje** | Gdy pasuje kilka kontaktów, pyta: „Do której Ani wysłać?”. |
@@ -72,6 +73,7 @@ open Reminder.xcodeproj
 1. W Xcode wybierz swój zespół w *Signing & Capabilities* dla targetów `Reminder` i `ReminderWidget`.
 2. Uruchom aplikację na iPhonie.
 3. Otwórz Ustawienia (zębatka) i wklej klucz API. Stan „Klucz działa” potwierdzi, że jest poprawny.
+4. Opcjonalnie: w sekcji *Zadania* wybierz TickTick i wklej osobisty token API. Utworzysz go w TickTick w przeglądarce: awatar → *Ustawienia → Konto → API Token*. Przypomnienia o miejscu („jak będę w Lidlu”) działają tylko z Przypomnieniami Apple.
 
 Testy:
 
@@ -95,8 +97,9 @@ Dostępne stany: `home`, `listening`, `result`, `multi`, `sms`, `settings`.
 
 ## Prywatność
 
-- 🔑 Klucz API jest przechowywany tylko w Keychain na urządzeniu.
+- 🔑 Klucz API i token TickTick są przechowywane tylko w Keychain na urządzeniu.
 - 📝 Do Claude API trafia wyłącznie tekst rozpoznanego polecenia, bez nagrania głosu. Mowę na tekst zamienia systemowe rozpoznawanie mowy Apple.
+- ✅ Po wybraniu TickTick treść zadań trafia prosto do TickTick Open API.
 - 🚫 Brak własnego serwera i analityki.
 
 ## Struktura
@@ -104,7 +107,7 @@ Dostępne stany: `home`, `listening`, `result`, `multi`, `sms`, `settings`.
 | Katalog | Zawartość |
 |---|---|
 | `Reminder/Views` | Ekrany SwiftUI: główny, karta akcji, Ustawienia |
-| `Reminder/Services` | Mowa, interpretacja poleceń przez Claude, Przypomnienia, Kalendarz, Kontakty, alarmy |
+| `Reminder/Services` | Mowa, interpretacja poleceń przez Claude, Przypomnienia / TickTick, Kalendarz, Kontakty, alarmy |
 | `Reminder/Models` | Polecenia i historia (SwiftData) |
 | `ReminderWidget` | Widżet ekranu blokady i kontrolka |
 | `Shared` | Intent wspólny dla aplikacji i widżetu |
