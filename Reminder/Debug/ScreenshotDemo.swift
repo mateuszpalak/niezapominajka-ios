@@ -50,7 +50,7 @@ enum ScreenshotDemo {
     private static func done(_ command: InterpretedCommand) -> PlannedAction {
         var action = PlannedAction(command: command)
         action.status = .done
-        action.undo = .reminders(["demo"])
+        action.undo = .tasks([.apple("demo")])
         return action
     }
 

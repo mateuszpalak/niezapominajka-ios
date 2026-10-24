@@ -12,12 +12,15 @@
 		19F012136C69509BBE992DEC /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728257568F7E0CBECC1FC476 /* AppSettings.swift */; };
 		1BC0D806D787EA7C1BD8875B /* PlannedAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578A0B0467C817E4D350DDBF /* PlannedAction.swift */; };
 		1C38D34D1CF6000DEF4760A0 /* ReminderShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478EBDD473B06F0309E6DECA /* ReminderShortcuts.swift */; };
+		203DDEE882503729FCC6C80F /* TaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574A0B5FE40B7FA62BE708E6 /* TaskStore.swift */; };
+		29BB3B0613BBB68A2E509B06 /* TickTickServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C5927B1B140BA6858C2378 /* TickTickServiceTests.swift */; };
 		302085F745EF319FBA3928FC /* CaptureReminderIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED84C7DBA3A8F286DCE5A77 /* CaptureReminderIntent.swift */; };
 		3389DD9AB01FC57561FCDE87 /* ActionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B7F26A5E7C8CAADD37A52A /* ActionCard.swift */; };
 		33F4B2EECA19E9E1D414344B /* CaptureReminderIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED84C7DBA3A8F286DCE5A77 /* CaptureReminderIntent.swift */; };
 		3A82768A8D2D6CB3FD45C080 /* CommandInterpreterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 145B8224FD7503E9C8BEB889 /* CommandInterpreterTests.swift */; };
 		4F2C45A6F318CDFD43118A05 /* InterpretedCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1913A0DCC53F0EBE2CB28F71 /* InterpretedCommand.swift */; };
 		50A48F09DE8626CD8B4182AD /* ReminderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E389D15C87F939AFE938E2 /* ReminderApp.swift */; };
+		5646E4E03F89EE2DAFAB0FF3 /* TickTickService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E7E90A4BC9D892B23E2FD3 /* TickTickService.swift */; };
 		5701E417D3174EB32CC61C90 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376F09F3035729D9C9B67809 /* CaptureView.swift */; };
 		5C99B76EA1707F735B16C068 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD299C13A977CE086048694A /* CalendarService.swift */; };
 		5FAD73EA867F9ECEE04BA31D /* ScreenshotDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76EC85DDABFBA67AFB6BD7A2 /* ScreenshotDemo.swift */; };
@@ -83,11 +86,14 @@
 		4ED84C7DBA3A8F286DCE5A77 /* CaptureReminderIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureReminderIntent.swift; sourceTree = "<group>"; };
 		51B7F26A5E7C8CAADD37A52A /* ActionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionCard.swift; sourceTree = "<group>"; };
 		554CAC44E1E1361ECE0278FE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		574A0B5FE40B7FA62BE708E6 /* TaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskStore.swift; sourceTree = "<group>"; };
 		578A0B0467C817E4D350DDBF /* PlannedAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannedAction.swift; sourceTree = "<group>"; };
+		57E7E90A4BC9D892B23E2FD3 /* TickTickService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TickTickService.swift; sourceTree = "<group>"; };
 		59160797595391B78B59897A /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
 		6BCEDB8B4696EDFF16140997 /* Reminder.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Reminder.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		728257568F7E0CBECC1FC476 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		72E389D15C87F939AFE938E2 /* ReminderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderApp.swift; sourceTree = "<group>"; };
+		75C5927B1B140BA6858C2378 /* TickTickServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TickTickServiceTests.swift; sourceTree = "<group>"; };
 		76EC85DDABFBA67AFB6BD7A2 /* ScreenshotDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotDemo.swift; sourceTree = "<group>"; };
 		900685AD8D63E3B1886EF051 /* ReminderWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ReminderWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BC390857D3E5E5B7B061C7BE /* CommandInterpreter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandInterpreter.swift; sourceTree = "<group>"; };
@@ -116,6 +122,7 @@
 			isa = PBXGroup;
 			children = (
 				145B8224FD7503E9C8BEB889 /* CommandInterpreterTests.swift */,
+				75C5927B1B140BA6858C2378 /* TickTickServiceTests.swift */,
 			);
 			path = ReminderTests;
 			sourceTree = "<group>";
@@ -142,6 +149,8 @@
 				112B01334E19DE1C01E3EC2D /* KeychainStore.swift */,
 				59160797595391B78B59897A /* RemindersService.swift */,
 				F11FC0ECEA9F0F76ED456AE1 /* SpeechService.swift */,
+				574A0B5FE40B7FA62BE708E6 /* TaskStore.swift */,
+				57E7E90A4BC9D892B23E2FD3 /* TickTickService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -351,6 +360,8 @@
 				5FAD73EA867F9ECEE04BA31D /* ScreenshotDemo.swift in Sources */,
 				E77FB5B26BCA48B930A9AE3E /* SettingsView.swift in Sources */,
 				DDBB079AFA39358EC3667688 /* SpeechService.swift in Sources */,
+				203DDEE882503729FCC6C80F /* TaskStore.swift in Sources */,
+				5646E4E03F89EE2DAFAB0FF3 /* TickTickService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,6 +379,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3A82768A8D2D6CB3FD45C080 /* CommandInterpreterTests.swift in Sources */,
+				29BB3B0613BBB68A2E509B06 /* TickTickServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

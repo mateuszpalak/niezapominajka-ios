@@ -2,10 +2,10 @@ import Foundation
 
 /// Identyfikatory tego, co zapisaliśmy — pozwalają zrobić „Cofnij”.
 enum UndoToken: Equatable {
-    case reminders([String])
+    case tasks([TaskRef])
     case event(String)
-    case alarm(UUID, reminder: String)
-    case completed(String)
+    case alarm(UUID, task: TaskRef)
+    case completed(TaskRef)
 }
 
 /// Jedna karta na ekranie wyniku: polecenie + stan wykonania.
@@ -35,7 +35,7 @@ struct PlannedAction: Identifiable, Equatable {
     }
 }
 
-/// Opcje list wyboru na karcie (wczytane z EventKit).
+/// Opcje list wyboru na karcie (wczytane z miejsca zapisu zadań i EventKit).
 struct ChoiceSource: Equatable {
     var reminderLists: [String] = []
     var calendars: [String] = []

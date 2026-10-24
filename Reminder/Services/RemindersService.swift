@@ -4,7 +4,7 @@ import CoreLocation
 import MapKit
 
 /// Zapis do Przypomnień Apple (EventKit).
-struct RemindersService {
+struct RemindersService: TaskStore {
     /// Jeden współdzielony magazyn EventKit — tworzenie EKEventStore jest kosztowne.
     /// EKEventStore jest bezpieczny do użycia z wielu wątków (dokumentacja EventKit), a pole jest stałe.
     nonisolated(unsafe) private static let sharedStore = EKEventStore()
@@ -18,8 +18,8 @@ struct RemindersService {
     /// Gdy `listName` podane, zapis idzie na tę listę (tworzy ją, jeśli nie istnieje).
     /// Zwraca identyfikator przypomnienia (do „Cofnij”).
     @discardableResult
-    func addReminder(title: String, notes: String?, dueDate: Date?, listName: String? = nil,
-                     locationName: String? = nil) async throws -> String {
+    func addTask(title: String, notes: String?, dueDate: Date?, listName: String? = nil,
+                 locationName: String? = nil) async throws -> TaskRef {
         guard try await requestAccess() else {
             throw NSError(domain: "Reminder", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Brak dostępu do Przypomnień — włącz w Ustawieniach."])
@@ -50,32 +50,38 @@ struct RemindersService {
             reminder.addAlarm(alarm)
         }
         try store.save(reminder, commit: true)
-        return reminder.calendarItemIdentifier
+        return .apple(reminder.calendarItemIdentifier)
+    }
+
+    /// Notatki Apple nie mają publicznego API — notatki lądują jako pozycje
+    /// bez terminu na liście „Notatki” w Przypomnieniach (synchronizacja iCloud).
+    func addNote(title: String, notes: String?, listName: String) async throws -> TaskRef {
+        try await addTask(title: title, notes: notes, dueDate: nil, listName: listName)
     }
 
     /// Dodaje produkty na listę zakupów użytkownika: podaną `listName` albo wykrytą
     /// („zakupy”/„shopping”; tworzy „Zakupy”, jeśli żadnej nie ma). Zwraca identyfikatory pozycji.
-    func addShoppingItems(_ items: [String], listName: String? = nil) async throws -> [String] {
+    func addItems(_ items: [String], listName: String? = nil) async throws -> [TaskRef] {
         guard try await requestAccess() else {
             throw NSError(domain: "Reminder", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Brak dostępu do Przypomnień — włącz w Ustawieniach."])
         }
         let calendar = try calendarNamed(listName ?? shoppingListName() ?? "Zakupy")
-        var ids: [String] = []
+        var ids: [TaskRef] = []
         for item in items {
             let reminder = EKReminder(eventStore: store)
             reminder.title = item
             reminder.calendar = calendar
             try store.save(reminder, commit: false)
-            ids.append(reminder.calendarItemIdentifier)
+            ids.append(.apple(reminder.calendarItemIdentifier))
         }
         try store.commit()
         return ids
     }
 
     /// Usuwa zapisane wcześniej pozycje („Cofnij”).
-    func remove(ids: [String]) throws {
-        for id in ids {
+    func remove(_ refs: [TaskRef]) throws {
+        for case .apple(let id) in refs {
             guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { continue }
             try store.remove(reminder, commit: false)
         }
@@ -83,8 +89,8 @@ struct RemindersService {
     }
 
     /// Cofa odhaczenie przypomnienia.
-    func uncomplete(id: String) throws {
-        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { return }
+    func uncomplete(_ ref: TaskRef) throws {
+        guard case .apple(let id) = ref, let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { return }
         reminder.isCompleted = false
         try store.save(reminder, commit: true)
     }
@@ -102,40 +108,33 @@ struct RemindersService {
 
     /// Wykryta lista zakupów („zakupy”/„shopping”).
     func shoppingListName() -> String? {
-        store.calendars(for: .reminder).first {
-            let t = $0.title.lowercased()
-            return t.contains("zakup") || t.contains("shopping")
-        }?.title
-    }
-
-    /// Przypomnienie w formie, którą można bezpiecznie przekazać między wątkami (EKReminder nie jest Sendable).
-    struct ReminderSummary: Sendable {
-        let id: String
-        let title: String
-        let dueDateComponents: DateComponents?
+        TaskMatcher.shoppingList(in: store.calendars(for: .reminder).map(\.title))
     }
 
     /// Niewykonane przypomnienia z terminem do końca podanego dnia.
-    func incompleteReminders(until end: Date) async throws -> [ReminderSummary] {
+    func incompleteTasks(until end: Date) async throws -> [TaskSummary] {
         guard try await requestAccess() else { return [] }
         let predicate = store.predicateForIncompleteReminders(
             withDueDateStarting: nil, ending: end, calendars: nil)
         return await fetchSummaries(matching: predicate)
     }
 
-    private func fetchSummaries(matching predicate: NSPredicate) async -> [ReminderSummary] {
+    /// Przypomnienia w formie, którą można bezpiecznie przekazać między wątkami (EKReminder nie jest Sendable).
+    private func fetchSummaries(matching predicate: NSPredicate) async -> [TaskSummary] {
         await withCheckedContinuation { cont in
             store.fetchReminders(matching: predicate) { reminders in
                 cont.resume(returning: (reminders ?? []).map {
-                    ReminderSummary(id: $0.calendarItemIdentifier, title: $0.title ?? "",
-                                    dueDateComponents: $0.dueDateComponents)
+                    let comps = $0.dueDateComponents
+                    return TaskSummary(ref: .apple($0.calendarItemIdentifier), title: $0.title ?? "",
+                                       dueDate: comps.flatMap { Calendar.current.date(from: $0) },
+                                       hasTime: comps?.hour != nil)
                 })
             }
         }
     }
 
     /// Odhacza pierwsze niewykonane przypomnienie pasujące do frazy; zwraca jego identyfikator i tytuł.
-    func completeReminder(matching phrase: String) async throws -> (id: String, title: String) {
+    func complete(matching phrase: String) async throws -> (ref: TaskRef, title: String) {
         guard try await requestAccess() else {
             throw NSError(domain: "Reminder", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Brak dostępu do Przypomnień."])
@@ -143,19 +142,14 @@ struct RemindersService {
         let predicate = store.predicateForIncompleteReminders(
             withDueDateStarting: nil, ending: nil, calendars: nil)
         let reminders = await fetchSummaries(matching: predicate)
-        let needle = phrase.lowercased()
-        let found = reminders.first {
-            let title = $0.title.lowercased()
-            return title.contains(needle) || needle.contains(title)
-                || !Set(title.split(separator: " ")).isDisjoint(with: needle.split(separator: " "))
-        }
-        guard let found, let match = store.calendarItem(withIdentifier: found.id) as? EKReminder else {
+        guard case .apple(let id)? = TaskMatcher.bestMatch(for: phrase, in: reminders)?.ref,
+              let match = store.calendarItem(withIdentifier: id) as? EKReminder else {
             throw NSError(domain: "Reminder", code: 9,
                           userInfo: [NSLocalizedDescriptionKey: "Nie znalazłem przypomnienia pasującego do „\(phrase)”."])
         }
         match.isCompleted = true
         try store.save(match, commit: true)
-        return (match.calendarItemIdentifier, match.title ?? phrase)
+        return (.apple(match.calendarItemIdentifier), match.title ?? phrase)
     }
 
     private func calendarNamed(_ name: String) throws -> EKCalendar {

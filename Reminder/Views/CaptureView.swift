@@ -134,7 +134,7 @@ final class CaptureController: ObservableObject {
     }
 
     private func loadChoices() async {
-        async let lists = RemindersService().listNames()
+        async let lists = AppSettings.taskStore.listNames()
         async let calendars = CalendarService().calendarNames()
         choices = ChoiceSource(reminderLists: await lists, calendars: await calendars)
     }
@@ -148,13 +148,14 @@ final class CaptureController: ObservableObject {
 
     static func withDefaults(_ command: InterpretedCommand) -> InterpretedCommand {
         var c = command
+        let tasks = AppSettings.taskStore
         switch c.action {
         case .reminder:
-            c.listName = c.listName ?? RemindersService().defaultListName() ?? "Przypomnienia"
+            c.listName = c.listName ?? tasks.defaultListName() ?? "Przypomnienia"
         case .note:
             c.listName = c.listName ?? "Notatki"
         case .shopping:
-            c.listName = c.listName ?? AppSettings.defaultShoppingList ?? RemindersService().shoppingListName() ?? "Zakupy"
+            c.listName = c.listName ?? AppSettings.defaultShoppingList ?? tasks.shoppingListName() ?? "Zakupy"
         case .event:
             c.calendarName = c.calendarName ?? AppSettings.defaultCalendar ?? CalendarService().defaultCalendarName()
             if c.endDate == nil, let start = c.dueDateParsed { c.endDateParsed = start.addingTimeInterval(3600) }
@@ -295,21 +296,30 @@ final class CaptureController: ObservableObject {
     /// „Odrzuć”: cofa wszystkie zapisane akcje i zamyka karty.
     func discardAll() {
         stopCountdown()
-        for action in actions where action.status == .done && action.undo != nil { undo(action.id) }
         for i in actions.indices where actions[i].status == .pending { actions[i].status = .undone }
-        scheduleFinish(after: 0.6)
+        let ids = actions.filter { $0.status == .done && $0.undo != nil }.map(\.id)
+        // Cofnięcie w TickTick idzie przez sieć — zamknij karty dopiero po nim, inaczej trafią do historii.
+        Task {
+            for id in ids { await undoAction(id) }
+            scheduleFinish(after: 0.6)
+        }
     }
 
     var canDiscard: Bool { actions.contains { $0.status == .done && $0.undo != nil } }
 
     func undo(_ id: UUID) {
-        guard let modelContext, let index = actions.firstIndex(where: { $0.id == id }),
-              let token = actions[index].undo else { return }
+        Task { await undoAction(id) }
+    }
+
+    private func undoAction(_ id: UUID) async {
+        guard let modelContext, let token = actions.first(where: { $0.id == id })?.undo else { return }
         do {
-            try ActionExecutor(modelContext: modelContext).undo(token)
+            try await ActionExecutor(modelContext: modelContext).undo(token)
+            guard let index = actions.firstIndex(where: { $0.id == id }) else { return }
             actions[index].status = .undone
             actions[index].undo = nil
         } catch {
+            guard let index = actions.firstIndex(where: { $0.id == id }) else { return }
             actions[index].status = .failed(error.localizedDescription)
         }
         if actions.allSatisfy({ $0.status == .undone }) { scheduleFinish(after: 0.6) }
@@ -360,14 +370,15 @@ final class CaptureController: ObservableObject {
     /// „Analizuj ponownie”: cofa już zapisane akcje i interpretuje poprawiony tekst.
     func reanalyze() {
         editingTranscript = false
-        if let modelContext {
-            for action in actions where action.status == .done {
-                if let token = action.undo { try? ActionExecutor(modelContext: modelContext).undo(token) }
-            }
-        }
+        let tokens = actions.filter { $0.status == .done }.compactMap(\.undo)
         actions = []
         let text = draft
-        Task { await process(text) }
+        Task {
+            if let modelContext {
+                for token in tokens { try? await ActionExecutor(modelContext: modelContext).undo(token) }
+            }
+            await process(text)
+        }
     }
 
     // MARK: - Edycja pól (tryb podglądu)

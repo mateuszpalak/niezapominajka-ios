@@ -25,36 +25,37 @@ struct ActionExecutor {
     var modelContext: ModelContext
 
     func execute(_ command: InterpretedCommand, contact: ContactMatch? = nil) async throws -> ExecutionResult {
+        let tasks = AppSettings.taskStore
         switch command.action {
         case .reminder:
-            let id = try await RemindersService().addReminder(
+            let ref = try await tasks.addTask(
                 title: command.title, notes: command.notes, dueDate: command.dueDateParsed,
                 listName: command.listName, locationName: command.location)
-            return ExecutionResult(undo: .reminders([id]))
+            return ExecutionResult(undo: .tasks([ref]))
         case .alarm:
             guard let date = command.dueDateParsed else {
                 // Alarm bez daty nie ma sensu — zapisz jako przypomnienie bez terminu.
-                let id = try await RemindersService().addReminder(title: command.title, notes: command.notes, dueDate: nil)
-                return ExecutionResult(undo: .reminders([id]))
+                let ref = try await tasks.addTask(title: command.title, notes: command.notes, dueDate: nil,
+                                                  listName: nil, locationName: nil)
+                return ExecutionResult(undo: .tasks([ref]))
             }
             let alarmID = try await AlarmService().scheduleAlarm(title: command.title, date: date)
-            let id = try await RemindersService().addReminder(title: command.title, notes: command.notes, dueDate: date)
-            return ExecutionResult(undo: .alarm(alarmID, reminder: id))
+            let ref = try await tasks.addTask(title: command.title, notes: command.notes, dueDate: date,
+                                              listName: nil, locationName: nil)
+            return ExecutionResult(undo: .alarm(alarmID, task: ref))
         case .note:
-            // Notatki Apple nie mają publicznego API — notatki lądują jako pozycje
-            // bez terminu na liście „Notatki” w Przypomnieniach (synchronizacja iCloud).
-            let id = try await RemindersService().addReminder(
-                title: command.title, notes: command.notes, dueDate: nil, listName: command.listName ?? "Notatki")
-            return ExecutionResult(undo: .reminders([id]))
+            let ref = try await tasks.addNote(
+                title: command.title, notes: command.notes, listName: command.listName ?? "Notatki")
+            return ExecutionResult(undo: .tasks([ref]))
         case .shopping:
             let items = command.items?.filter { !$0.isEmpty } ?? []
             guard !items.isEmpty else {
-                let id = try await RemindersService().addReminder(
-                    title: command.title, notes: command.notes, dueDate: nil, listName: command.listName)
-                return ExecutionResult(undo: .reminders([id]))
+                let ref = try await tasks.addTask(
+                    title: command.title, notes: command.notes, dueDate: nil, listName: command.listName, locationName: nil)
+                return ExecutionResult(undo: .tasks([ref]))
             }
-            let ids = try await RemindersService().addShoppingItems(items, listName: command.listName)
-            return ExecutionResult(undo: .reminders(ids))
+            let refs = try await tasks.addItems(items, listName: command.listName)
+            return ExecutionResult(undo: .tasks(refs))
         case .event:
             guard let start = command.dueDateParsed else {
                 throw NSError(domain: "Reminder", code: 7,
@@ -75,23 +76,23 @@ struct ActionExecutor {
         case .query:
             return ExecutionResult(message: try await daySummary(for: command.dueDateParsed ?? .now))
         case .complete:
-            let (id, title) = try await RemindersService().completeReminder(matching: command.title)
-            return ExecutionResult(undo: .completed(id), message: "Odhaczyłem: \(title).")
+            let (ref, title) = try await tasks.complete(matching: command.title)
+            return ExecutionResult(undo: .completed(ref), message: "Odhaczyłem: \(title).")
         }
     }
 
     /// „Cofnij”: usuwa to, co zapisaliśmy.
-    func undo(_ token: UndoToken) throws {
+    func undo(_ token: UndoToken) async throws {
         switch token {
-        case .reminders(let ids):
-            try RemindersService().remove(ids: ids)
+        case .tasks(let refs):
+            try await refs.first?.store.remove(refs)
         case .event(let id):
             try CalendarService().remove(id: id)
-        case .alarm(let alarmID, let reminderID):
+        case .alarm(let alarmID, let ref):
             try? AlarmService().cancelAlarm(id: alarmID)
-            try RemindersService().remove(ids: [reminderID])
-        case .completed(let id):
-            try RemindersService().uncomplete(id: id)
+            try await ref.store.remove([ref])
+        case .completed(let ref):
+            try await ref.store.uncomplete(ref)
         }
     }
 
@@ -108,7 +109,7 @@ struct ActionExecutor {
         let calendar = Calendar.current
         let endOfDay = calendar.startOfDay(for: day).addingTimeInterval(86_400)
         // Pobieraj przypomnienia i kalendarz równolegle.
-        async let remindersTask = RemindersService().incompleteReminders(until: endOfDay)
+        async let remindersTask = AppSettings.taskStore.incompleteTasks(until: endOfDay)
         async let eventsTask = CalendarService().events(on: day)
         let (reminders, events) = try await (remindersTask, eventsTask)
 
@@ -119,8 +120,7 @@ struct ActionExecutor {
             parts.append("Nie masz zaległych przypomnień.")
         } else {
             let list = reminders.prefix(10).map { reminder -> String in
-                guard let comps = reminder.dueDateComponents, let date = calendar.date(from: comps),
-                      comps.hour != nil else { return reminder.title }
+                guard let date = reminder.dueDate, reminder.hasTime else { return reminder.title }
                 return "\(reminder.title) o \(date.formatted(timeFormat))"
             }
             parts.append("Przypomnienia (\(reminders.count)): \(list.joined(separator: ", ")).")
